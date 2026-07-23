@@ -1,0 +1,178 @@
+from typing import AsyncIterator
+
+import pytest
+
+from app.providers.base import (
+    BaseProvider,
+    ProviderResult,
+    ProviderStream,
+    StreamEvent,
+)
+from app.providers.registry import provider_registry
+
+
+class FakeStream(ProviderStream):
+    http_status = 200
+    upstream_request_id = "upstream-stream-1"
+
+    async def events(self) -> AsyncIterator[StreamEvent]:
+        yield StreamEvent(
+            data={
+                "id": "chatcmpl-stream",
+                "object": "chat.completion.chunk",
+                "model": "upstream",
+                "choices": [{"index": 0, "delta": {"content": "你好"}}],
+            }
+        )
+        yield StreamEvent(
+            data={
+                "id": "chatcmpl-stream",
+                "object": "chat.completion.chunk",
+                "model": "upstream",
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": 4,
+                    "completion_tokens": 2,
+                    "total_tokens": 6,
+                },
+            }
+        )
+        yield StreamEvent(done=True)
+
+    async def close(self) -> None:
+        pass
+
+
+class FakeProvider(BaseProvider):
+    code = "deepseek"
+
+    async def chat_completion(
+        self, payload, *, upstream_model, timeout_seconds
+    ) -> ProviderResult:
+        return ProviderResult(
+            data={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "model": upstream_model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "你好"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 4,
+                    "completion_tokens": 2,
+                    "total_tokens": 6,
+                },
+            },
+            http_status=200,
+            upstream_request_id="upstream-1",
+        )
+
+    async def open_chat_stream(
+        self, payload, *, upstream_model, timeout_seconds
+    ) -> ProviderStream:
+        return FakeStream()
+
+
+async def login(client, username: str, password: str) -> str:
+    response = await client.post(
+        "/api/auth/login", json={"username": username, "password": password}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_health_and_user_key_flow(client):
+    admin_token = await login(client, "admin", "admin-password")
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    create_user = await client.post(
+        "/api/admin/users",
+        headers=headers,
+        json={"username": "developer", "password": "developer-password"},
+    )
+    assert create_user.status_code in (201, 409)
+
+    user_token = await login(client, "developer", "developer-password")
+    user_headers = {"Authorization": f"Bearer {user_token}"}
+    created = await client.post(
+        "/api/me/api-keys", headers=user_headers, json={"name": "test"}
+    )
+    assert created.status_code == 201
+    full_key = created.json()["key"]
+    assert full_key.startswith("sk-team-")
+
+    listed = await client.get("/api/me/api-keys", headers=user_headers)
+    assert listed.status_code == 200
+    assert "key" not in listed.json()[0]
+    assert listed.json()[0]["key_prefix"].endswith("...")
+
+    health = await client.get("/health")
+    assert health.status_code == 200
+    assert health.json()["providers"]["deepseek"] == "available"
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_non_stream_and_stream(client):
+    original_provider = provider_registry._providers["deepseek"]
+    provider_registry._providers["deepseek"] = FakeProvider()
+    try:
+        admin_token = await login(client, "admin", "admin-password")
+        create_user = await client.post(
+            "/api/admin/users",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"username": "chat-user", "password": "developer-password"},
+        )
+        assert create_user.status_code in (201, 409)
+        user_token = await login(client, "chat-user", "developer-password")
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        key = (
+            await client.post(
+                "/api/me/api-keys",
+                headers=user_headers,
+                json={"name": "openai-test"},
+            )
+        ).json()["key"]
+        api_headers = {"Authorization": f"Bearer {key}"}
+
+        models = await client.get("/v1/models", headers=api_headers)
+        assert models.status_code == 200
+        assert models.json()["data"][0]["id"] == "deepseek-chat"
+
+        response = await client.post(
+            "/v1/chat/completions",
+            headers=api_headers,
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": "你好"}],
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["x-request-id"].startswith("req_")
+        assert response.json()["model"] == "deepseek-chat"
+        assert response.json()["usage"]["total_tokens"] == 6
+
+        async with client.stream(
+            "POST",
+            "/v1/chat/completions",
+            headers=api_headers,
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": "你好"}],
+                "stream": True,
+            },
+        ) as stream:
+            assert stream.headers["x-request-id"].startswith("req_")
+            text = "".join([chunk async for chunk in stream.aiter_text()])
+        assert '"content": "你好"' in text
+        assert "data: [DONE]" in text
+
+        usage = await client.get("/api/me/usage/summary", headers=user_headers)
+        assert usage.status_code == 200
+        assert usage.json()["today_tokens"] == 12
+    finally:
+        provider_registry._providers["deepseek"] = original_provider
