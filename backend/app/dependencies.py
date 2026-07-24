@@ -12,7 +12,11 @@ from app.utils.security import decode_access_token
 
 
 bearer = HTTPBearer(auto_error=False)
-DbSession = Annotated[AsyncSession, Depends(get_db)]
+# Database work in route handlers is completed before a response is returned.
+# Closing the session at function scope is especially important for SSE: keeping
+# a request-scoped session alive until the client disconnects can retain pooled
+# connections for the whole stream lifetime.
+DbSession = Annotated[AsyncSession, Depends(get_db, scope="function")]
 Credentials = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]
 
 
@@ -58,4 +62,3 @@ async def api_principal(
             code="missing_api_key",
         )
     return await authenticate_api_key(session, credentials.credentials)
-

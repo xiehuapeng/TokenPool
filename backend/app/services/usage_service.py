@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from app.database.session import SessionLocal
 from app.models import UsageLog
@@ -78,3 +78,40 @@ async def finish_usage_log(
             .values(**values)
         )
         await session.commit()
+
+
+async def recover_stale_usage_logs(max_age_minutes: int = 5) -> int:
+    """Close pending calls left behind by a previous interrupted process.
+
+    Normal client disconnects are finalized by the cancellation-safe stream
+    cleanup. This startup recovery covers hard process termination, power loss,
+    and records created by older gateway versions.
+    """
+
+    finished = now_utc()
+    cutoff = finished - timedelta(minutes=max_age_minutes)
+    async with SessionLocal() as session:
+        stale_logs = list(
+            await session.scalars(
+                select(UsageLog).where(
+                    UsageLog.status == "pending",
+                    UsageLog.request_time < cutoff,
+                )
+            )
+        )
+        for usage_log in stale_logs:
+            started = usage_log.request_time
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            usage_log.response_time = finished
+            usage_log.latency_ms = max(
+                0, int((finished - started).total_seconds() * 1000)
+            )
+            usage_log.status = "interrupted"
+            usage_log.error_code = "stale_pending_recovered"
+            usage_log.error_message = (
+                "Request ended without a terminal status and was recovered at startup"
+            )
+        if stale_logs:
+            await session.commit()
+        return len(stale_logs)

@@ -1,7 +1,8 @@
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ApiKey, User
@@ -18,12 +19,15 @@ class ApiPrincipal:
 async def authenticate_password(
     session: AsyncSession, username: str, password: str
 ) -> User | None:
-    user = await session.scalar(select(User).where(User.username == username))
+    user = await session.scalar(
+        select(User).where(func.lower(User.username) == username.lower())
+    )
     if (
         user is None
         or user.status != "active"
-        or not verify_password(password, user.password_hash)
     ):
+        return None
+    if not await asyncio.to_thread(verify_password, password, user.password_hash):
         return None
     return user
 
@@ -64,4 +68,3 @@ async def authenticate_api_key(
     api_key.last_used_at = now
     await session.commit()
     return ApiPrincipal(user=user, api_key=api_key)
-

@@ -2,14 +2,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 
 from app.config.settings import get_settings
 from app.dependencies import DbSession, current_user
 from app.models import ApiKey, ModelConfig, ProviderConfig, UsageLog, User
 from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyView
 from app.utils.errors import GatewayError
-from app.utils.security import generate_api_key
+from app.utils.security import generate_api_key, generate_retired_api_key_hash
 
 
 router = APIRouter(prefix="/api/me", tags=["me"])
@@ -26,10 +26,30 @@ async def get_public_config(
 async def list_api_keys(
     user: Annotated[User, Depends(current_user)], session: DbSession
 ) -> list[ApiKey]:
+    now = datetime.now(timezone.utc)
+    expired_keys = list(
+        await session.scalars(
+            select(ApiKey).where(
+                ApiKey.user_id == user.id,
+                ApiKey.status == "active",
+                ApiKey.expires_at.is_not(None),
+                ApiKey.expires_at <= now,
+            )
+        )
+    )
+    for expired_key in expired_keys:
+        expired_key.status = "expired"
+        expired_key.key_hash = generate_retired_api_key_hash()
+    if expired_keys:
+        await session.commit()
     return list(
         await session.scalars(
             select(ApiKey)
-            .where(ApiKey.user_id == user.id)
+            .where(
+                ApiKey.user_id == user.id,
+                ApiKey.status == "active",
+                or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
+            )
             .order_by(ApiKey.created_at.desc())
         )
     )
@@ -73,11 +93,16 @@ async def revoke_api_key(
     session: DbSession,
 ) -> None:
     key = await session.scalar(
-        select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == user.id)
+        select(ApiKey).where(
+            ApiKey.id == key_id,
+            ApiKey.user_id == user.id,
+            ApiKey.status == "active",
+        )
     )
     if key is None:
         raise GatewayError("API Key不存在", status_code=404, code="key_not_found")
     key.status = "revoked"
+    key.key_hash = generate_retired_api_key_hash()
     await session.commit()
 
 

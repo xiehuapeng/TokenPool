@@ -1,10 +1,21 @@
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from datetime import datetime
+
+from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.auth import USERNAME_PATTERN, validate_password_strength
 
 
 class UserCreate(BaseModel):
-    username: str = Field(min_length=2, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
-    password: str = Field(min_length=8, max_length=256)
+    username: str = Field(min_length=3, max_length=64, pattern=USERNAME_PATTERN)
+    password: str = Field(min_length=8, max_length=64)
     is_admin: bool = False
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        return validate_password_strength(value)
 
 
 class UserStatusUpdate(BaseModel):
@@ -12,7 +23,7 @@ class UserStatusUpdate(BaseModel):
 
 
 class KeyStatusUpdate(BaseModel):
-    status: str = Field(pattern=r"^(active|revoked)$")
+    status: Literal["revoked"]
 
 
 class ModelUpdate(BaseModel):
@@ -22,3 +33,17 @@ class ModelUpdate(BaseModel):
     default_allowed: bool | None = None
     sort_order: int | None = None
 
+
+class InviteCodeCreate(BaseModel):
+    label: str = Field(default="团队邀请码", min_length=1, max_length=80)
+    code: str = Field(
+        min_length=8,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+    )
+    max_uses: int | None = Field(default=None, ge=1, le=10000)
+    expires_at: datetime | None = None
+
+
+class InviteCodeStatusUpdate(BaseModel):
+    status: Literal["active", "disabled"]

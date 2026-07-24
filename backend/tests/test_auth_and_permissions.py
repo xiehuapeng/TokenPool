@@ -19,11 +19,11 @@ async def create_user_and_key(
     response = await client.post(
         "/api/admin/users",
         headers={"Authorization": f"Bearer {admin_token}"},
-        json={"username": username, "password": "secure-password"},
+        json={"username": username, "password": "secure-password1"},
     )
     assert response.status_code == 201
     user_id = response.json()["id"]
-    token = await login(client, username, "secure-password")
+    token = await login(client, username, "secure-password1")
     key_response = await client.post(
         "/api/me/api-keys",
         headers={"Authorization": f"Bearer {token}"},
@@ -88,9 +88,76 @@ async def test_missing_and_invalid_api_keys_are_rejected(client):
 
 
 @pytest.mark.asyncio
-async def test_no_public_registration_endpoint(client):
+async def test_public_registration_creates_only_normal_user(client):
+    admin_token = await login(client, "admin", "admin-password")
+    invite_response = await client.post(
+        "/api/admin/invite-codes",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "label": "registration-test",
+            "code": "team-register-2026",
+            "max_uses": 2,
+        },
+    )
+    assert invite_response.status_code == 201
+
+    privilege_attempt = await client.post(
+        "/api/auth/register",
+        json={
+            "username": "self-user",
+            "password": "external-password1",
+            "invite_code": "team-register-2026",
+            "is_admin": True,
+        },
+    )
+    assert privilege_attempt.status_code == 422
+
     response = await client.post(
         "/api/auth/register",
-        json={"username": "external", "password": "external-password"},
+        json={
+            "username": "self-user",
+            "password": "external-password1",
+            "invite_code": "team-register-2026",
+        },
     )
-    assert response.status_code == 404
+    assert response.status_code == 201
+    assert response.json()["user"]["username"] == "self-user"
+    assert response.json()["user"]["status"] == "active"
+    assert response.json()["user"]["is_admin"] is False
+    assert response.json()["access_token"]
+
+    duplicate = await client.post(
+        "/api/auth/register",
+        json={
+            "username": "SELF-USER",
+            "password": "external-password1",
+            "invite_code": "team-register-2026",
+        },
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "username_exists"
+
+    forbidden = await client.get(
+        "/api/admin/users",
+        headers={"Authorization": f"Bearer {response.json()['access_token']}"},
+    )
+    assert forbidden.status_code == 403
+
+    invalid_invite = await client.post(
+        "/api/auth/register",
+        json={
+            "username": "another-user",
+            "password": "external-password1",
+            "invite_code": "wrong-invite",
+        },
+    )
+    assert invalid_invite.status_code == 400
+    assert invalid_invite.json()["error"]["code"] == "invalid_invite_code"
+
+    invite_list = await client.get(
+        "/api/admin/invite-codes",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert invite_list.status_code == 200
+    assert invite_list.json()[0]["usage_count"] == 1
+    assert "code" not in invite_list.json()[0]

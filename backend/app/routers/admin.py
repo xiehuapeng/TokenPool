@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -6,15 +7,21 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.dependencies import DbSession, admin_user
-from app.models import ApiKey, ModelConfig, ProviderConfig, UsageLog, User
+from app.models import ApiKey, InviteCode, ModelConfig, ProviderConfig, UsageLog, User
 from app.schemas.admin import (
+    InviteCodeCreate,
+    InviteCodeStatusUpdate,
     KeyStatusUpdate,
     ModelUpdate,
     UserCreate,
     UserStatusUpdate,
 )
 from app.utils.errors import GatewayError
-from app.utils.security import hash_password
+from app.utils.security import (
+    generate_retired_api_key_hash,
+    hash_invite_code,
+    hash_password,
+)
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -36,11 +43,90 @@ async def list_users(_admin: Admin, session: DbSession) -> list[dict]:
     ]
 
 
+@router.get("/invite-codes")
+async def list_invite_codes(_admin: Admin, session: DbSession) -> list[dict]:
+    codes = await session.scalars(
+        select(InviteCode).order_by(InviteCode.created_at.desc())
+    )
+    return [
+        {
+            "id": item.id,
+            "label": item.label,
+            "code_prefix": item.code_prefix,
+            "status": item.status,
+            "max_uses": item.max_uses,
+            "usage_count": item.usage_count,
+            "expires_at": item.expires_at,
+            "created_at": item.created_at,
+        }
+        for item in codes
+    ]
+
+
+@router.post("/invite-codes", status_code=status.HTTP_201_CREATED)
+async def create_invite_code(
+    body: InviteCodeCreate, admin: Admin, session: DbSession
+) -> dict:
+    code_hash = hash_invite_code(body.code)
+    existing = await session.scalar(
+        select(InviteCode).where(InviteCode.code_hash == code_hash)
+    )
+    if existing is not None:
+        raise GatewayError(
+            "该邀请码已经存在",
+            status_code=409,
+            code="invite_code_exists",
+        )
+    item = InviteCode(
+        label=body.label,
+        code_prefix=f"{body.code[:4]}...{body.code[-2:]}",
+        code_hash=code_hash,
+        status="active",
+        max_uses=body.max_uses,
+        usage_count=0,
+        expires_at=body.expires_at,
+        created_by=admin.id,
+    )
+    session.add(item)
+    await session.commit()
+    await session.refresh(item)
+    return {
+        "id": item.id,
+        "label": item.label,
+        "code_prefix": item.code_prefix,
+        "status": item.status,
+    }
+
+
+@router.patch("/invite-codes/{invite_code_id}/status")
+async def update_invite_code_status(
+    invite_code_id: int,
+    body: InviteCodeStatusUpdate,
+    _admin: Admin,
+    session: DbSession,
+) -> dict:
+    item = await session.get(InviteCode, invite_code_id)
+    if item is None:
+        raise GatewayError(
+            "邀请码不存在", status_code=404, code="invite_code_not_found"
+        )
+    item.status = body.status
+    await session.commit()
+    return {"id": item.id, "status": item.status}
+
+
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def create_user(body: UserCreate, _admin: Admin, session: DbSession) -> dict:
+    existing = await session.scalar(
+        select(User).where(func.lower(User.username) == body.username.lower())
+    )
+    if existing is not None:
+        raise GatewayError(
+            "用户名已存在", status_code=409, code="username_exists"
+        )
     user = User(
         username=body.username,
-        password_hash=hash_password(body.password),
+        password_hash=await asyncio.to_thread(hash_password, body.password),
         status="active",
         is_admin=body.is_admin,
     )
@@ -99,6 +185,7 @@ async def update_key_status(
     if key is None:
         raise GatewayError("API Key不存在", status_code=404, code="key_not_found")
     key.status = body.status
+    key.key_hash = generate_retired_api_key_hash()
     await session.commit()
     return {"id": key.id, "status": key.status}
 

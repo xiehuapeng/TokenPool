@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,8 +8,12 @@ from app.config.settings import get_settings
 from app.database.session import engine
 from app.routers import admin, auth, health, me, openai
 from app.services.bootstrap import seed_initial_data
+from app.services.usage_service import recover_stale_usage_logs
 from app.utils.errors import GatewayError, gateway_error_handler
 from app.utils.redaction import configure_secret_redaction
+
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -19,6 +24,12 @@ async def lifespan(_app: FastAPI):
     if settings.auto_migrate:
         await upgrade_database()
     await seed_initial_data()
+    recovered_usage_logs = await recover_stale_usage_logs()
+    if recovered_usage_logs:
+        logger.warning(
+            "Recovered %d stale pending usage log(s)",
+            recovered_usage_logs,
+        )
     try:
         yield
     finally:

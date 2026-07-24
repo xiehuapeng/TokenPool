@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { meApi } from "@/api";
+import { copyText } from "@/utils/clipboard";
 
 const baseUrl = ref("http://localhost:8000/v1");
 const curl = computed(() => `curl ${baseUrl.value}/chat/completions \\
@@ -19,8 +20,14 @@ onMounted(async () => {
 });
 
 async function copy(value: string) {
-  await navigator.clipboard.writeText(value);
-  ElMessage.success("已复制");
+  try {
+    await copyText(value);
+    ElMessage.success("已复制");
+  } catch (error) {
+    ElMessage.error(
+      error instanceof Error ? error.message : "复制失败，请手动选择复制",
+    );
+  }
 }
 
 const tools = [
