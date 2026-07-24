@@ -18,6 +18,22 @@
 
 要求 Python 3.11+、Node.js 20+。不需要 Docker。
 
+### Windows 一键启动
+
+完成下面的 `.env` 配置后，在项目根目录双击 `start.bat`，或在 PowerShell
+执行：
+
+```powershell
+.\start.bat
+```
+
+脚本会自动准备缺失的 Python/Node 依赖、后台启动 FastAPI 和 Vue，健康检查
+通过后打开 `http://localhost:5173`。运行日志保存在 `.run/`。停止服务：
+
+```powershell
+.\stop.bat
+```
+
 ### 1. 配置
 
 在项目根目录复制配置：
@@ -144,7 +160,8 @@ DATABASE_URL=postgresql+asyncpg://gateway_user:password@postgres:5432/ai_gateway
 - 日志过滤器会兜底脱敏 Bearer、`sk-` Key 和常见 secret 字段。
 - 管理接口和用户接口使用登录 JWT；`/v1/*` 使用团队 API Key。
 - `/health` 当前报告配置可用性，不会在每次探测时产生付费模型请求。
-- 不提供公开注册接口，普通用户只能由管理员创建。
+- 用户可以自助注册普通账号；注册接口固定创建非管理员用户，管理员可在后台
+  禁用、启用和查看用户。
 
 ## 后续演进
 

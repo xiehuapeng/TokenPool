@@ -93,11 +93,11 @@ async def test_health_and_user_key_flow(client):
     create_user = await client.post(
         "/api/admin/users",
         headers=headers,
-        json={"username": "developer", "password": "developer-password"},
+        json={"username": "developer", "password": "developer-password1"},
     )
     assert create_user.status_code in (201, 409)
 
-    user_token = await login(client, "developer", "developer-password")
+    user_token = await login(client, "developer", "developer-password1")
     user_headers = {"Authorization": f"Bearer {user_token}"}
     created = await client.post(
         "/api/me/api-keys", headers=user_headers, json={"name": "test"}
@@ -110,6 +110,38 @@ async def test_health_and_user_key_flow(client):
     assert listed.status_code == 200
     assert "key" not in listed.json()[0]
     assert listed.json()[0]["key_prefix"].endswith("...")
+
+    revoked = await client.delete(
+        f"/api/me/api-keys/{created.json()['id']}",
+        headers=user_headers,
+    )
+    assert revoked.status_code == 204
+
+    listed_after_revoke = await client.get(
+        "/api/me/api-keys", headers=user_headers
+    )
+    assert listed_after_revoke.status_code == 200
+    assert listed_after_revoke.json() == []
+
+    revoked_key_access = await client.get(
+        "/v1/models",
+        headers={"Authorization": f"Bearer {full_key}"},
+    )
+    assert revoked_key_access.status_code == 401
+
+    audit_keys = await client.get("/api/admin/api-keys", headers=headers)
+    assert audit_keys.status_code == 200
+    audit_key = next(
+        item for item in audit_keys.json() if item["id"] == created.json()["id"]
+    )
+    assert audit_key["status"] == "revoked"
+
+    reactivate = await client.patch(
+        f"/api/admin/api-keys/{created.json()['id']}/status",
+        headers=headers,
+        json={"status": "active"},
+    )
+    assert reactivate.status_code == 422
 
     health = await client.get("/health")
     assert health.status_code == 200
@@ -125,10 +157,10 @@ async def test_openai_compatible_non_stream_and_stream(client):
         create_user = await client.post(
             "/api/admin/users",
             headers={"Authorization": f"Bearer {admin_token}"},
-            json={"username": "chat-user", "password": "developer-password"},
+            json={"username": "chat-user", "password": "developer-password1"},
         )
         assert create_user.status_code in (201, 409)
-        user_token = await login(client, "chat-user", "developer-password")
+        user_token = await login(client, "chat-user", "developer-password1")
         user_headers = {"Authorization": f"Bearer {user_token}"}
         key = (
             await client.post(

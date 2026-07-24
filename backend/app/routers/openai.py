@@ -20,6 +20,7 @@ from app.services.usage_service import (
     finish_usage_log,
     now_utc,
 )
+from app.utils.async_cleanup import run_cancellation_safe_cleanup
 from app.utils.errors import GatewayError
 
 
@@ -142,23 +143,30 @@ async def chat_completions(
             yield f"data: {json.dumps(error)}\n\n".encode()
             yield b"data: [DONE]\n\n"
         finally:
-            await upstream.close()
-            await finish_usage_log(
-                request_id,
-                started,
-                status=(
-                    "success"
-                    if completed
-                    else "failed"
-                    if failure
-                    else "client_disconnected"
-                ),
-                http_status=upstream.http_status,
-                usage=usage,
-                first_token_time=first_token,
-                error_code="stream_interrupted" if failure else None,
-                error_message=str(failure) if failure else None,
-                upstream_request_id=upstream.upstream_request_id,
+            async def cleanup_stream() -> None:
+                try:
+                    await upstream.close()
+                finally:
+                    await finish_usage_log(
+                        request_id,
+                        started,
+                        status=(
+                            "success"
+                            if completed
+                            else "failed"
+                            if failure
+                            else "client_disconnected"
+                        ),
+                        http_status=upstream.http_status,
+                        usage=usage,
+                        first_token_time=first_token,
+                        error_code="stream_interrupted" if failure else None,
+                        error_message=str(failure) if failure else None,
+                        upstream_request_id=upstream.upstream_request_id,
+                    )
+
+            await run_cancellation_safe_cleanup(
+                cleanup_stream()
             )
 
     return StreamingResponse(

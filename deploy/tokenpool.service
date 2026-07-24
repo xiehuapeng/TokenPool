@@ -1,0 +1,22 @@
+[Unit]
+Description=TokenPool AI Coding Gateway
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tokenpool
+Group=tokenpool
+WorkingDirectory=/opt/tokenpool/backend
+EnvironmentFile=/opt/tokenpool/.env
+ExecStart=/opt/tokenpool/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+MemoryMax=512M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

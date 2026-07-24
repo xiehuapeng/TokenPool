@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { meApi, type ApiKeyItem } from "@/api";
 import { errorMessage } from "@/api/http";
+import { copyText } from "@/utils/clipboard";
 
 const baseUrl = ref("");
 const keys = ref<ApiKeyItem[]>([]);
@@ -56,17 +57,23 @@ async function createKey() {
 }
 
 async function revoke(id: number) {
-  await ElMessageBox.confirm("吊销后使用该 Key 的工具将立即无法调用。", "确认吊销", {
+  await ElMessageBox.confirm("吊销后该 Key 将立即失效并从工作台移除，且无法恢复。", "确认吊销", {
     type: "warning",
   });
   await meApi.revokeKey(id);
-  ElMessage.success("API Key 已吊销");
+  ElMessage.success("API Key 已吊销并移除");
   await load();
 }
 
 async function copy(value: string) {
-  await navigator.clipboard.writeText(value);
-  ElMessage.success("已复制");
+  try {
+    await copyText(value);
+    ElMessage.success("已复制");
+  } catch (error) {
+    ElMessage.error(
+      error instanceof Error ? error.message : "复制失败，请手动选择复制",
+    );
+  }
 }
 
 onMounted(load);

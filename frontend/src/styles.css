@@ -67,6 +67,18 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .card-header span { color: #98a2b3; font-size: 13px; }
 .secret-value { margin-top: 18px; padding: 18px; overflow-wrap: anywhere; border: 1px dashed #f5a623; border-radius: 8px; background: #fffbeb; }
 .full-width { width: 100%; }
+.form-tip {
+  margin-top: 6px;
+  color: #7a8496;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.form-inline-tip {
+  margin-left: 10px;
+  color: #7a8496;
+  font-size: 12px;
+}
+.admin-alert { margin-bottom: 18px; }
 .muted { color: #667085; }
 .login-page {
   min-height: 100vh; display: grid; grid-template-columns: 1.2fr .8fr; align-items: center;

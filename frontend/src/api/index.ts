@@ -21,6 +21,12 @@ export interface ApiKeyItem {
 export const authApi = {
   login: (username: string, password: string) =>
     http.post("/api/auth/login", { username, password }),
+  register: (username: string, password: string, inviteCode: string) =>
+    http.post("/api/auth/register", {
+      username,
+      password,
+      invite_code: inviteCode,
+    }),
   me: () => http.get<CurrentUser>("/api/auth/me"),
 };
 
@@ -36,6 +42,11 @@ export const meApi = {
 export const adminApi = {
   users: () => http.get("/api/admin/users"),
   createUser: (body: object) => http.post("/api/admin/users", body),
+  inviteCodes: () => http.get("/api/admin/invite-codes"),
+  createInviteCode: (body: object) =>
+    http.post("/api/admin/invite-codes", body),
+  setInviteCodeStatus: (id: number, status: string) =>
+    http.patch(`/api/admin/invite-codes/${id}/status`, { status }),
   setUserStatus: (id: number, status: string) =>
     http.patch(`/api/admin/users/${id}/status`, { status }),
   keys: () => http.get("/api/admin/api-keys"),
@@ -48,4 +59,3 @@ export const adminApi = {
   stats: () => http.get("/api/admin/stats"),
   logs: () => http.get("/api/admin/usage-logs"),
 };
-

@@ -101,3 +101,17 @@ def generate_api_key() -> tuple[str, str, str]:
 def hash_api_key(raw_key: str) -> str:
     pepper = get_settings().api_key_pepper.get_secret_value().encode("utf-8")
     return hmac.new(pepper, raw_key.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def hash_invite_code(raw_code: str) -> str:
+    """Hash an invite code without storing the original value."""
+
+    pepper = get_settings().api_key_pepper.get_secret_value().encode("utf-8")
+    message = f"invite-code:{raw_code}".encode("utf-8")
+    return hmac.new(pepper, message, hashlib.sha256).hexdigest()
+
+
+def generate_retired_api_key_hash() -> str:
+    """Replace a revoked credential digest with an irreversible tombstone."""
+
+    return hashlib.sha256(secrets.token_bytes(32)).hexdigest()
