@@ -6,7 +6,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 760px; background: #f4f7fb; }
+body { margin: 0; min-width: 320px; background: #f4f7fb; }
 button, input { font: inherit; }
 code { font-family: "Cascadia Code", Consolas, monospace; }
 
@@ -47,6 +47,34 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   height: 64px; display: flex; align-items: center; justify-content: space-between;
   padding: 0 30px; background: rgba(255,255,255,.9); border-bottom: 1px solid #e7ecf3;
 }
+.topbar-title { display: flex; align-items: center; min-width: 0; }
+.mobile-menu-button { display: none !important; margin-right: 6px; }
+.hamburger { font-size: 23px; line-height: 1; }
+.mobile-drawer .el-drawer__body {
+  padding: 0;
+  background: #101828;
+}
+.mobile-sidebar-content {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  background:
+    radial-gradient(circle at 20% 5%, rgba(62, 139, 255, .2), transparent 28%),
+    linear-gradient(180deg, #101828 0%, #162034 100%);
+}
+.mobile-sidebar-content .el-menu {
+  border-right: 0;
+  padding: 12px;
+}
+.mobile-sidebar-content .el-menu-item {
+  height: 46px;
+  margin: 4px 0;
+  border-radius: 8px;
+}
+.mobile-sidebar-content .el-menu-item.is-active {
+  background: linear-gradient(90deg, rgba(47,128,237,.35), rgba(47,128,237,.08)) !important;
+}
 .content { padding: 30px; }
 .page-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .page-heading h1 { margin: 0; font-size: 27px; letter-spacing: -.5px; }
@@ -62,6 +90,19 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .steps { margin: 0; padding-left: 23px; line-height: 2.5; color: #475467; }
 .guide-steps { margin: 6px 0; padding-left: 24px; line-height: 2.2; color: #475467; }
 .model-pills { display: flex; flex-wrap: wrap; gap: 10px; min-height: 42px; align-items: center; }
+.model-select { width: 100%; margin-bottom: 14px; }
+.selected-model-code { margin-left: 12px; }
+.provider-model-list { min-height: 120px; margin-top: 18px; }
+.provider-model-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 46px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.provider-model-tags { display: flex; gap: 6px; }
 .compact { margin: 12px 0 0; font-size: 13px; }
 .card-header { display: flex; justify-content: space-between; }
 .card-header span { color: #98a2b3; font-size: 13px; }
@@ -107,3 +148,113 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .metric-card span { color: #667085; font-size: 13px; }
 .metric-card strong { margin-top: 10px; font-size: 30px; letter-spacing: -.5px; }
 .subheading { margin-top: 28px; }
+
+@media (max-width: 768px) {
+  .selected-model-code { display: block; margin: 10px 0 0; }
+  .provider-model-item {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 4px;
+  }
+  .app-shell { display: block; }
+  .desktop-sidebar { display: none !important; }
+  .main-shell { width: 100%; min-width: 0; }
+  .mobile-menu-button { display: inline-flex !important; }
+  .topbar {
+    height: 56px;
+    padding: 0 12px 0 6px;
+    font-size: 14px;
+  }
+  .topbar-title > span:last-child {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .content { padding: 16px; overflow-x: hidden; }
+  .page-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .page-heading h1 { font-size: 23px; }
+  .page-heading p { font-size: 14px; line-height: 1.6; }
+  .page-heading > .el-button { width: 100%; margin-left: 0; }
+  .content > div > .el-row {
+    row-gap: 14px;
+  }
+  .content .el-row > .el-col {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+  .el-card__header { padding: 14px 16px !important; }
+  .el-card__body { padding: 16px !important; }
+  .card-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .copy-value {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .copy-value code {
+    width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .copy-value .el-button { margin-left: 0; }
+  .section-card { margin-top: 14px; }
+  .code-block { padding: 16px; font-size: 12px; }
+  .metric-card { padding: 18px; }
+  .metric-card strong { font-size: 25px; }
+  .el-dialog {
+    width: calc(100vw - 24px) !important;
+    margin-top: 5vh !important;
+  }
+  .el-message-box {
+    width: calc(100vw - 24px) !important;
+  }
+  .el-dialog__footer .el-button {
+    margin: 4px 0 4px 8px;
+  }
+  .el-table {
+    width: 100%;
+    font-size: 12px;
+  }
+  .el-tabs__nav-wrap {
+    padding: 0 4px;
+  }
+  .login-page {
+    grid-template-columns: 1fr;
+    align-content: center;
+    gap: 24px;
+    padding: 24px 18px;
+  }
+  .login-intro { text-align: center; }
+  .login-intro .brand-mark { margin: 0 auto; }
+  .login-intro h1 {
+    margin: 16px 0 8px;
+    font-size: 30px;
+    letter-spacing: -1px;
+  }
+  .login-intro p { margin: 0; font-size: 15px; }
+  .signal-line { display: none; }
+  .login-card {
+    width: 100%;
+    max-width: 440px;
+    justify-self: center;
+    padding: 6px;
+  }
+}
+
+@media (max-width: 420px) {
+  .content { padding: 12px; }
+  .topbar > .el-tag { display: none; }
+  .brand { height: 72px; padding: 0 18px; }
+  .login-page { padding: 18px 12px; }
+  .login-intro h1 { font-size: 26px; }
+  .login-intro p { display: none; }
+  .el-card__body { padding: 14px !important; }
+}

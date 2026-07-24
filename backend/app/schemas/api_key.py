@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+from app.utils.time import to_beijing
 
 
 class ApiKeyCreate(BaseModel):
@@ -17,8 +19,18 @@ class ApiKeyView(BaseModel):
     created_at: datetime
     last_used_at: datetime | None
     expires_at: datetime | None
+    can_reveal: bool
+
+    @field_serializer("created_at", "last_used_at", "expires_at")
+    def serialize_beijing_time(
+        self, value: datetime | None
+    ) -> datetime | None:
+        return to_beijing(value) if value is not None else None
 
 
 class ApiKeyCreated(ApiKeyView):
     key: str
 
+
+class SecretReveal(BaseModel):
+    value: str

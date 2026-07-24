@@ -1,13 +1,12 @@
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
-
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ApiKey, User
 from app.utils.errors import GatewayError
 from app.utils.security import hash_api_key, verify_password
+from app.utils.time import utc_now
 
 
 @dataclass(slots=True)
@@ -50,7 +49,7 @@ async def authenticate_api_key(
             code="invalid_api_key",
         )
     api_key, user = row
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     if api_key.status != "active" or user.status != "active":
         raise GatewayError(
             "API key is disabled",

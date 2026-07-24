@@ -8,6 +8,41 @@ from app.utils.errors import GatewayError
 
 
 @pytest.mark.asyncio
+async def test_deepseek_provider_lists_upstream_models():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/models"
+        assert request.headers["authorization"].startswith("Bearer ")
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [
+                    {
+                        "id": "deepseek-v4-flash",
+                        "object": "model",
+                        "owned_by": "deepseek",
+                    },
+                    {
+                        "id": "deepseek-v4-pro",
+                        "object": "model",
+                        "owned_by": "deepseek",
+                    },
+                ],
+            },
+        )
+
+    provider = DeepSeekProvider(transport=httpx.MockTransport(handler))
+    models = await provider.list_models(timeout_seconds=30)
+
+    assert [item.id for item in models] == [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+    ]
+    assert models[0].owned_by == "deepseek"
+
+
+@pytest.mark.asyncio
 async def test_deepseek_provider_success():
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["authorization"].startswith("Bearer ")
@@ -65,4 +100,3 @@ async def test_deepseek_provider_error_is_normalized_and_redacted():
     assert caught.value.status_code == 429
     assert caught.value.code == "deepseek_upstream_error"
     assert "sensitive-example-token" not in caught.value.message
-

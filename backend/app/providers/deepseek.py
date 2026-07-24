@@ -6,6 +6,7 @@ import httpx
 from app.config.settings import get_settings
 from app.providers.base import (
     BaseProvider,
+    ProviderModel,
     ProviderResult,
     ProviderStream,
     StreamEvent,
@@ -87,6 +88,10 @@ class DeepSeekProvider(BaseProvider):
         return f"{get_settings().deepseek_base_url.rstrip('/')}/chat/completions"
 
     @staticmethod
+    def _models_url() -> str:
+        return f"{get_settings().deepseek_base_url.rstrip('/')}/models"
+
+    @staticmethod
     def _timeout(seconds: int) -> httpx.Timeout:
         return httpx.Timeout(connect=10, read=seconds, write=30, pool=10)
 
@@ -95,6 +100,43 @@ class DeepSeekProvider(BaseProvider):
             timeout=self._timeout(timeout_seconds),
             transport=self._transport,
         )
+
+    async def list_models(self, *, timeout_seconds: int) -> list[ProviderModel]:
+        async with self._client(timeout_seconds) as client:
+            try:
+                response = await client.get(
+                    self._models_url(), headers=self._headers()
+                )
+            except httpx.TimeoutException as exc:
+                raise GatewayError(
+                    "获取DeepSeek模型列表超时",
+                    status_code=504,
+                    error_type="upstream_error",
+                    code="upstream_timeout",
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise GatewayError(
+                    "无法连接DeepSeek模型列表接口",
+                    status_code=502,
+                    error_type="upstream_error",
+                    code="upstream_connection_error",
+                ) from exc
+        if not response.is_success:
+            raise _upstream_error(response, response.content)
+        try:
+            data = response.json().get("data", [])
+            return [
+                ProviderModel(id=item["id"], owned_by=item.get("owned_by"))
+                for item in data
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+            ]
+        except (AttributeError, TypeError, json.JSONDecodeError) as exc:
+            raise GatewayError(
+                "DeepSeek返回了无效的模型列表",
+                status_code=502,
+                error_type="upstream_error",
+                code="invalid_upstream_response",
+            ) from exc
 
     async def chat_completion(
         self, payload: dict[str, Any], *, upstream_model: str, timeout_seconds: int

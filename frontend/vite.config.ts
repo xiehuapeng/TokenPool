@@ -12,6 +12,39 @@ export default defineConfig(({ mode }) => {
         "@": fileURLToPath(new URL("./src", import.meta.url)),
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(moduleId) {
+            const id = moduleId.replace(/\\/g, "/");
+            if (!id.includes("/node_modules/")) return undefined;
+            if (
+              id.includes("/element-plus/") ||
+              id.includes("/@element-plus/") ||
+              id.includes("/@vueuse/") ||
+              id.includes("/async-validator/") ||
+              id.includes("/dayjs/") ||
+              id.includes("/lodash-") ||
+              id.includes("/memoize-one/") ||
+              id.includes("/normalize-wheel-es/") ||
+              id.includes("/escape-html/") ||
+              id.includes("/@ctrl/tinycolor/")
+            ) {
+              return "element-plus";
+            }
+            if (
+              id.includes("/vue/") ||
+              id.includes("/@vue/") ||
+              id.includes("/vue-router/")
+            ) {
+              return "vue-core";
+            }
+            if (id.includes("/axios/")) return "http-client";
+            return "vendor";
+          },
+        },
+      },
+    },
     server: {
       port: 5173,
       proxy: {

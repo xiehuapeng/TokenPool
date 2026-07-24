@@ -18,8 +18,8 @@ from app.services.model_router import list_permitted_models, resolve_model
 from app.services.usage_service import (
     create_usage_log,
     finish_usage_log,
-    now_utc,
 )
+from app.utils.time import utc_now
 from app.utils.async_cleanup import run_cancellation_safe_cleanup
 from app.utils.errors import GatewayError
 
@@ -122,7 +122,7 @@ async def chat_completions(
                 if event.data is None:
                     continue
                 if first_token is None and event.data.get("choices"):
-                    first_token = now_utc()
+                    first_token = utc_now()
                 if event.data.get("usage"):
                     usage = event.data["usage"]
                 event.data["model"] = body.model

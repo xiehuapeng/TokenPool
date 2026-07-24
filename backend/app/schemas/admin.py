@@ -47,3 +47,9 @@ class InviteCodeCreate(BaseModel):
 
 class InviteCodeStatusUpdate(BaseModel):
     status: Literal["active", "disabled"]
+
+
+class ProviderModelSync(BaseModel):
+    models: list[str] = Field(min_length=1, max_length=100)
+    enable: bool = True
+    default_allowed: bool = True

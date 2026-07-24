@@ -100,6 +100,16 @@ async def test_public_registration_creates_only_normal_user(client):
         },
     )
     assert invite_response.status_code == 201
+    assert invite_response.json()["code"] == "team-register-2026"
+    invite_id = invite_response.json()["id"]
+
+    revealed_invite = await client.get(
+        f"/api/admin/invite-codes/{invite_id}/secret",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert revealed_invite.status_code == 200
+    assert revealed_invite.json()["value"] == "team-register-2026"
+    assert revealed_invite.headers["cache-control"] == "no-store"
 
     privilege_attempt = await client.post(
         "/api/auth/register",
@@ -160,4 +170,11 @@ async def test_public_registration_creates_only_normal_user(client):
     )
     assert invite_list.status_code == 200
     assert invite_list.json()[0]["usage_count"] == 1
+    assert invite_list.json()[0]["can_reveal"] is True
     assert "code" not in invite_list.json()[0]
+
+    forbidden_reveal = await client.get(
+        f"/api/admin/invite-codes/{invite_id}/secret",
+        headers={"Authorization": f"Bearer {response.json()['access_token']}"},
+    )
+    assert forbidden_reveal.status_code == 403

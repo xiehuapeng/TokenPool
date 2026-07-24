@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
@@ -12,6 +12,7 @@ from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, UserV
 from app.services.auth_service import authenticate_password
 from app.utils.errors import GatewayError
 from app.utils.security import create_access_token, hash_invite_code, hash_password
+from app.utils.time import utc_now
 
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -37,7 +38,7 @@ async def register(body: RegisterRequest, session: DbSession) -> LoginResponse:
         .where(InviteCode.code_hash == hash_invite_code(body.invite_code))
         .with_for_update()
     )
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     invite_expired = False
     if invite is not None and invite.expires_at is not None:
         expires_at = invite.expires_at

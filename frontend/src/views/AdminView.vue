@@ -3,6 +3,8 @@ import { onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { adminApi } from "@/api";
 import { errorMessage } from "@/api/http";
+import { formatBeijingTime } from "@/utils/time";
+import { copyText } from "@/utils/clipboard";
 
 const activeTab = ref("users");
 const users = ref<any[]>([]);
@@ -15,6 +17,13 @@ const logs = ref<any[]>([]);
 const totalLogs = ref(0);
 const createUserVisible = ref(false);
 const createInviteVisible = ref(false);
+const providerModelsVisible = ref(false);
+const providerModelsLoading = ref(false);
+const availableProviderModels = ref<any[]>([]);
+const selectedProviderModels = ref<string[]>([]);
+const inviteSecretVisible = ref(false);
+const inviteSecret = ref("");
+const inviteSecretLabel = ref("");
 const userForm = reactive({ username: "", password: "", is_admin: false });
 const inviteForm = reactive({
   label: "团队邀请码",
@@ -85,7 +94,7 @@ async function createInviteCode() {
     return;
   }
   try {
-    await adminApi.createInviteCode({
+    const response = await adminApi.createInviteCode({
       label: inviteForm.label.trim(),
       code: inviteForm.code.trim(),
       max_uses: inviteForm.max_uses || null,
@@ -100,7 +109,10 @@ async function createInviteCode() {
       max_uses: 20,
       expires_at: "",
     });
-    ElMessage.success("邀请码已创建，请将刚才设置的完整邀请码提供给团队成员");
+    inviteSecret.value = response.data.code;
+    inviteSecretLabel.value = response.data.label;
+    inviteSecretVisible.value = true;
+    ElMessage.success("邀请码已创建并加密保存");
     await loadAll();
   } catch (error) {
     ElMessage.error(errorMessage(error));
@@ -143,6 +155,66 @@ async function setModelEnabled(row: any, enabled: boolean) {
   }
 }
 
+async function revealInviteCode(row: any) {
+  try {
+    const response = await adminApi.revealInviteCode(row.id);
+    inviteSecret.value = response.data.value;
+    inviteSecretLabel.value = row.label;
+    inviteSecretVisible.value = true;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  }
+}
+
+async function copy(value: string) {
+  try {
+    await copyText(value);
+    ElMessage.success("已复制");
+  } catch (error) {
+    ElMessage.error(
+      error instanceof Error ? error.message : "复制失败，请手动选择复制",
+    );
+  }
+}
+
+async function openProviderModels() {
+  providerModelsVisible.value = true;
+  providerModelsLoading.value = true;
+  try {
+    const response = await adminApi.providerModels("deepseek");
+    availableProviderModels.value = response.data.models;
+    selectedProviderModels.value = response.data.models
+      .filter((item: any) => item.enabled || !item.configured)
+      .map((item: any) => item.id);
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    providerModelsLoading.value = false;
+  }
+}
+
+async function syncProviderModels() {
+  if (!selectedProviderModels.value.length) {
+    ElMessage.warning("请至少选择一个模型");
+    return;
+  }
+  providerModelsLoading.value = true;
+  try {
+    await adminApi.syncProviderModels("deepseek", {
+      models: selectedProviderModels.value,
+      enable: true,
+      default_allowed: true,
+    });
+    providerModelsVisible.value = false;
+    ElMessage.success("已按 DeepSeek 官方列表同步模型");
+    await loadAll();
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    providerModelsLoading.value = false;
+  }
+}
+
 onMounted(loadAll);
 </script>
 
@@ -167,6 +239,13 @@ onMounted(loadAll);
       >
         设置邀请码
       </el-button>
+      <el-button
+        v-if="activeTab === 'models'"
+        type="primary"
+        @click="openProviderModels"
+      >
+        同步 DeepSeek 官方模型
+      </el-button>
     </div>
 
     <el-card shadow="never">
@@ -179,7 +258,11 @@ onMounted(loadAll);
                 {{ row.is_admin ? "管理员" : "成员" }}
               </template>
             </el-table-column>
-            <el-table-column prop="created_at" label="创建时间" min-width="190" />
+            <el-table-column label="创建时间" min-width="190">
+              <template #default="{ row }">
+                {{ formatBeijingTime(row.created_at) }}
+              </template>
+            </el-table-column>
             <el-table-column label="状态">
               <template #default="{ row }">
                 <el-tag :type="row.status === 'active' ? 'success' : 'info'">
@@ -199,7 +282,7 @@ onMounted(loadAll);
 
         <el-tab-pane label="邀请码" name="invites">
           <el-alert
-            title="邀请码原文不会保存；管理员创建后，请自行安全地提供给团队成员。"
+            title="新创建的邀请码会加密保存，可由管理员重复查看和复制；旧邀请码原文无法恢复。"
             type="info"
             :closable="false"
             show-icon
@@ -213,8 +296,16 @@ onMounted(loadAll);
                 {{ row.usage_count }} / {{ row.max_uses ?? "不限" }}
               </template>
             </el-table-column>
-            <el-table-column prop="expires_at" label="过期时间" min-width="190" />
-            <el-table-column prop="created_at" label="创建时间" min-width="190" />
+            <el-table-column label="过期时间" min-width="190">
+              <template #default="{ row }">
+                {{ formatBeijingTime(row.expires_at, "永久有效") }}
+              </template>
+            </el-table-column>
+            <el-table-column label="创建时间" min-width="190">
+              <template #default="{ row }">
+                {{ formatBeijingTime(row.created_at) }}
+              </template>
+            </el-table-column>
             <el-table-column label="状态">
               <template #default="{ row }">
                 <el-tag :type="row.status === 'active' ? 'success' : 'info'">
@@ -224,6 +315,21 @@ onMounted(loadAll);
             </el-table-column>
             <el-table-column label="操作">
               <template #default="{ row }">
+                <el-button
+                  v-if="row.can_reveal"
+                  link
+                  type="primary"
+                  @click="revealInviteCode(row)"
+                >
+                  查看/复制
+                </el-button>
+                <el-tooltip
+                  v-else
+                  content="该邀请码创建于加密存储启用前，原文无法恢复"
+                  placement="top"
+                >
+                  <el-button link disabled>不可查看</el-button>
+                </el-tooltip>
                 <el-button link @click="toggleInviteCode(row)">
                   {{ row.status === "active" ? "停用" : "启用" }}
                 </el-button>
@@ -237,8 +343,16 @@ onMounted(loadAll);
             <el-table-column prop="username" label="用户" />
             <el-table-column prop="name" label="名称" />
             <el-table-column prop="key_prefix" label="Key 前缀" min-width="190" />
-            <el-table-column prop="created_at" label="创建时间" min-width="190" />
-            <el-table-column prop="last_used_at" label="最后使用" min-width="190" />
+            <el-table-column label="创建时间" min-width="190">
+              <template #default="{ row }">
+                {{ formatBeijingTime(row.created_at) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="最后使用" min-width="190">
+              <template #default="{ row }">
+                {{ formatBeijingTime(row.last_used_at, "从未使用") }}
+              </template>
+            </el-table-column>
             <el-table-column prop="status" label="状态" />
             <el-table-column label="操作">
               <template #default="{ row }">
@@ -256,6 +370,13 @@ onMounted(loadAll);
         </el-tab-pane>
 
         <el-tab-pane label="模型管理" name="models">
+          <el-alert
+            title="可从 DeepSeek 官方 /models 接口获取当前可用模型。已有旧模型不会被自动删除或停用，避免影响团队现有配置。"
+            type="info"
+            :closable="false"
+            show-icon
+            class="admin-alert"
+          />
           <el-table :data="models">
             <el-table-column prop="public_model" label="公开模型名" min-width="180" />
             <el-table-column prop="upstream_model" label="上游模型名" min-width="180" />
@@ -318,7 +439,11 @@ onMounted(loadAll);
 
         <el-tab-pane :label="`调用日志 (${totalLogs})`" name="logs">
           <el-table :data="logs">
-            <el-table-column prop="request_time" label="时间" min-width="190" />
+            <el-table-column label="北京时间" min-width="190">
+              <template #default="{ row }">
+                {{ formatBeijingTime(row.request_time) }}
+              </template>
+            </el-table-column>
             <el-table-column prop="username" label="用户" />
             <el-table-column prop="model" label="模型" min-width="150" />
             <el-table-column prop="provider" label="Provider" />
@@ -365,7 +490,7 @@ onMounted(loadAll);
             maxlength="64"
           />
           <div class="form-tip">
-            原文不会存入数据库，请创建后自行保存并提供给成员
+            原文将加密保存，后续可在邀请码列表中再次查看和复制
           </div>
         </el-form-item>
         <el-form-item label="最大使用次数">
@@ -388,6 +513,74 @@ onMounted(loadAll);
       <template #footer>
         <el-button @click="createInviteVisible = false">取消</el-button>
         <el-button type="primary" @click="createInviteCode">创建邀请码</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="inviteSecretVisible"
+      :title="`查看邀请码：${inviteSecretLabel}`"
+      width="560px"
+      :close-on-click-modal="false"
+      @closed="inviteSecret = ''"
+    >
+      <el-alert type="warning" :closable="false">
+        邀请码允许注册团队账号，请仅提供给可信成员。
+      </el-alert>
+      <div class="secret-value"><code>{{ inviteSecret }}</code></div>
+      <template #footer>
+        <el-button type="primary" @click="copy(inviteSecret)">
+          复制邀请码
+        </el-button>
+        <el-button @click="inviteSecretVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="providerModelsVisible"
+      title="同步 DeepSeek 官方模型"
+      width="620px"
+    >
+      <el-alert
+        title="列表实时来自已配置的 DeepSeek Provider。勾选后会创建或启用对应的网关模型名。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="admin-alert"
+      />
+      <div v-loading="providerModelsLoading" class="provider-model-list">
+        <el-empty
+          v-if="!providerModelsLoading && !availableProviderModels.length"
+          description="未获取到可用模型"
+        />
+        <el-checkbox-group v-else v-model="selectedProviderModels">
+          <div
+            v-for="model in availableProviderModels"
+            :key="model.id"
+            class="provider-model-item"
+          >
+            <el-checkbox :value="model.id">
+              <code>{{ model.id }}</code>
+            </el-checkbox>
+            <div class="provider-model-tags">
+              <el-tag v-if="model.configured" size="small" type="info">
+                已配置
+              </el-tag>
+              <el-tag v-if="model.enabled" size="small" type="success">
+                已启用
+              </el-tag>
+            </div>
+          </div>
+        </el-checkbox-group>
+      </div>
+      <template #footer>
+        <el-button @click="providerModelsVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="providerModelsLoading"
+          @click="syncProviderModels"
+        >
+          同步所选模型
+        </el-button>
       </template>
     </el-dialog>
   </div>

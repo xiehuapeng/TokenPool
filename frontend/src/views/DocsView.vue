@@ -5,18 +5,32 @@ import { meApi } from "@/api";
 import { copyText } from "@/utils/clipboard";
 
 const baseUrl = ref("http://localhost:8000/v1");
+const models = ref<any[]>([]);
+const selectedModel = ref("");
+const defaultModel = computed(
+  () => selectedModel.value || models.value[0]?.id || "deepseek-v4-flash",
+);
 const curl = computed(() => `curl ${baseUrl.value}/chat/completions \\
   -H "Authorization: Bearer sk-team-xxxx" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "deepseek-chat",
+    "model": "${defaultModel.value}",
     "messages": [
       {"role": "user", "content": "你好"}
     ]
   }'`);
 
 onMounted(async () => {
-  baseUrl.value = (await meApi.config()).data.base_url;
+  const [configResponse, modelsResponse] = await Promise.all([
+    meApi.config(),
+    meApi.models(),
+  ]);
+  baseUrl.value = configResponse.data.base_url;
+  models.value = modelsResponse.data.filter((item: any) => item.status === "enabled");
+  const savedModel = localStorage.getItem("preferred_model");
+  selectedModel.value = models.value.some((item: any) => item.id === savedModel)
+    ? String(savedModel)
+    : models.value[0]?.id || "";
 });
 
 async function copy(value: string) {
@@ -28,6 +42,10 @@ async function copy(value: string) {
       error instanceof Error ? error.message : "复制失败，请手动选择复制",
     );
   }
+}
+
+function saveSelectedModel(value: string) {
+  localStorage.setItem("preferred_model", value);
 }
 
 const tools = [
@@ -44,7 +62,7 @@ const tools = [
     steps: [
       "进入 AI 模型或自定义模型设置。",
       "Provider 选择 OpenAI Compatible。",
-      "填写 Base URL、个人 API Key，并添加 deepseek-chat。",
+      "填写 Base URL、个人 API Key，并添加下方选择的模型名。",
     ],
   },
   {
@@ -52,7 +70,7 @@ const tools = [
     steps: [
       "进入模型服务配置，添加自定义 OpenAI Compatible 服务。",
       "填写网关 Base URL 和个人 API Key。",
-      "选择或手动填写 deepseek-chat。",
+      "选择或手动填写下方选择的模型名。",
     ],
   },
 ];
@@ -72,7 +90,21 @@ const tools = [
         <el-descriptions-item label="Provider"><code>OpenAI Compatible</code></el-descriptions-item>
         <el-descriptions-item label="Base URL"><code>{{ baseUrl }}</code></el-descriptions-item>
         <el-descriptions-item label="API Key"><code>工作台生成的个人 Key</code></el-descriptions-item>
-        <el-descriptions-item label="Model"><code>deepseek-chat</code></el-descriptions-item>
+        <el-descriptions-item label="Model">
+          <el-select
+            v-model="selectedModel"
+            class="model-select"
+            @change="saveSelectedModel"
+          >
+            <el-option
+              v-for="model in models"
+              :key="model.id"
+              :label="model.display_name || model.id"
+              :value="model.id"
+            />
+          </el-select>
+          <code class="selected-model-code">{{ defaultModel }}</code>
+        </el-descriptions-item>
       </el-descriptions>
     </el-card>
     <el-card shadow="never" class="section-card">
@@ -97,5 +129,12 @@ const tools = [
     <el-alert class="section-card" type="info" :closable="false">
       Base URL 已包含 /v1，工具中不要重复填写 /v1/v1。
     </el-alert>
+    <el-alert
+      v-if="['deepseek-chat', 'deepseek-reasoner'].includes(defaultModel)"
+      class="section-card"
+      type="warning"
+      :closable="false"
+      title="当前选择的是 DeepSeek 兼容旧别名，建议改用 deepseek-v4-flash 或 deepseek-v4-pro。"
+    />
   </div>
 </template>

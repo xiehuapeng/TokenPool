@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, TimestampMixin
@@ -20,9 +20,13 @@ class ApiKey(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(80), default="default")
     key_prefix: Mapped[str] = mapped_column(String(32))
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    secret_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped["User"] = relationship(back_populates="api_keys")
 
+    @property
+    def can_reveal(self) -> bool:
+        return bool(self.secret_ciphertext)

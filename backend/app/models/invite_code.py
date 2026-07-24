@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base, TimestampMixin
@@ -13,6 +13,7 @@ class InviteCode(TimestampMixin, Base):
     label: Mapped[str] = mapped_column(String(80), default="团队邀请码")
     code_prefix: Mapped[str] = mapped_column(String(20))
     code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    code_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)
     max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
     usage_count: Mapped[int] = mapped_column(Integer, default=0)

@@ -1,6 +1,14 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+)
+
+from app.utils.time import to_beijing
 
 
 USERNAME_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,62}[a-zA-Z0-9]$"
@@ -56,6 +64,10 @@ class UserView(BaseModel):
     status: str
     is_admin: bool
     created_at: datetime
+
+    @field_serializer("created_at")
+    def serialize_beijing_time(self, value: datetime) -> datetime:
+        return to_beijing(value)
 
 
 class LoginResponse(BaseModel):

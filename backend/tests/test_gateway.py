@@ -103,19 +103,42 @@ async def test_health_and_user_key_flow(client):
         "/api/me/api-keys", headers=user_headers, json={"name": "test"}
     )
     assert created.status_code == 201
+    assert created.json()["created_at"].endswith("+08:00")
+    assert created.json()["can_reveal"] is True
     full_key = created.json()["key"]
     assert full_key.startswith("sk-team-")
+
+    revealed = await client.get(
+        f"/api/me/api-keys/{created.json()['id']}/secret",
+        headers=user_headers,
+    )
+    assert revealed.status_code == 200
+    assert revealed.json()["value"] == full_key
+    assert revealed.headers["cache-control"] == "no-store"
+
+    reveal_as_other_user = await client.get(
+        f"/api/me/api-keys/{created.json()['id']}/secret",
+        headers=headers,
+    )
+    assert reveal_as_other_user.status_code == 404
 
     listed = await client.get("/api/me/api-keys", headers=user_headers)
     assert listed.status_code == 200
     assert "key" not in listed.json()[0]
     assert listed.json()[0]["key_prefix"].endswith("...")
+    assert listed.json()[0]["can_reveal"] is True
 
     revoked = await client.delete(
         f"/api/me/api-keys/{created.json()['id']}",
         headers=user_headers,
     )
     assert revoked.status_code == 204
+
+    reveal_after_revoke = await client.get(
+        f"/api/me/api-keys/{created.json()['id']}/secret",
+        headers=user_headers,
+    )
+    assert reveal_after_revoke.status_code == 404
 
     listed_after_revoke = await client.get(
         "/api/me/api-keys", headers=user_headers
@@ -206,5 +229,12 @@ async def test_openai_compatible_non_stream_and_stream(client):
         usage = await client.get("/api/me/usage/summary", headers=user_headers)
         assert usage.status_code == 200
         assert usage.json()["today_tokens"] == 12
+
+        admin_logs = await client.get(
+            "/api/admin/usage-logs",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert admin_logs.status_code == 200
+        assert admin_logs.json()["items"][0]["request_time"].endswith("+08:00")
     finally:
         provider_registry._providers["deepseek"] = original_provider

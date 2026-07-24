@@ -80,7 +80,7 @@ if (-not (Test-Path $pythonExe)) {
     }
 }
 
-& $pythonExe -c "import fastapi, uvicorn, sqlalchemy" 2>$null
+& $pythonExe -c "import fastapi, uvicorn, sqlalchemy, cryptography" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Step "Installing backend dependencies..."
     & $pythonExe -m pip install -r (Join-Path $backendDir "requirements.txt")

@@ -1,20 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { meApi, type ApiKeyItem } from "@/api";
 import { errorMessage } from "@/api/http";
 import { copyText } from "@/utils/clipboard";
+import { preloadAuthenticatedViewsWhenIdle } from "@/router/viewLoaders";
+import { formatBeijingTime } from "@/utils/time";
 
 const baseUrl = ref("");
 const keys = ref<ApiKeyItem[]>([]);
 const loading = ref(true);
 const generatedKey = ref("");
 const keyDialogVisible = ref(false);
+const keyDialogTitle = ref("API Key");
 const models = ref<any[]>([]);
+const selectedModel = ref("");
 const activeModels = computed(() =>
   models.value.filter((item) => item.status === "enabled"),
 );
-const defaultModel = computed(() => activeModels.value[0]?.id || "deepseek-chat");
+const defaultModel = computed(
+  () => selectedModel.value || activeModels.value[0]?.id || "deepseek-v4-flash",
+);
+const isLegacyModel = computed(() =>
+  ["deepseek-chat", "deepseek-reasoner"].includes(defaultModel.value),
+);
 const curlExample = computed(() => `curl ${baseUrl.value}/chat/completions \\
   -H "Authorization: Bearer ${generatedKey.value || "sk-team-your-key"}" \\
   -H "Content-Type: application/json" \\
@@ -34,12 +43,24 @@ async function load() {
     baseUrl.value = config.data.base_url;
     keys.value = keyList.data;
     models.value = modelList.data;
+    const savedModel = localStorage.getItem("preferred_model");
+    selectedModel.value = activeModels.value.some(
+      (item) => item.id === savedModel,
+    )
+      ? savedModel || ""
+      : activeModels.value[0]?.id || "";
   } catch (error) {
     ElMessage.error(errorMessage(error));
   } finally {
     loading.value = false;
+    const currentUser = JSON.parse(localStorage.getItem("user") || "null");
+    preloadAuthenticatedViewsWhenIdle(Boolean(currentUser?.is_admin));
   }
 }
+
+watch(selectedModel, (value) => {
+  if (value) localStorage.setItem("preferred_model", value);
+});
 
 async function createKey() {
   try {
@@ -49,10 +70,22 @@ async function createKey() {
     });
     const { data } = await meApi.createKey(value);
     generatedKey.value = data.key;
+    keyDialogTitle.value = "API Key 已生成";
     keyDialogVisible.value = true;
     await load();
   } catch (error: any) {
     if (error !== "cancel" && error !== "close") ElMessage.error(errorMessage(error));
+  }
+}
+
+async function revealKey(row: ApiKeyItem) {
+  try {
+    const { data } = await meApi.revealKey(row.id);
+    generatedKey.value = data.value;
+    keyDialogTitle.value = `查看 API Key：${row.name}`;
+    keyDialogVisible.value = true;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
   }
 }
 
@@ -103,9 +136,22 @@ onMounted(load);
           <template #header>
             <div class="card-header">
               <strong>当前支持模型</strong>
-              <el-button link @click="copy(defaultModel)">复制默认模型</el-button>
+              <el-button link @click="copy(defaultModel)">复制所选模型</el-button>
             </div>
           </template>
+          <el-select
+            v-model="selectedModel"
+            class="model-select"
+            placeholder="选择模型"
+            aria-label="选择默认模型"
+          >
+            <el-option
+              v-for="model in activeModels"
+              :key="model.id"
+              :label="model.display_name || model.id"
+              :value="model.id"
+            />
+          </el-select>
           <div class="model-pills">
             <el-tag
               v-for="model in activeModels"
@@ -124,28 +170,57 @@ onMounted(load);
           <p class="muted compact">
             Provider 选择 OpenAI Compatible，模型名称必须与此处完全一致。
           </p>
+          <el-alert
+            v-if="isLegacyModel"
+            title="这是 DeepSeek 兼容旧别名，建议将 Coding 工具模型改为 deepseek-v4-flash 或 deepseek-v4-pro。"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="compact"
+          />
         </el-card>
       </el-col>
     </el-row>
 
     <el-card shadow="never" class="section-card">
       <template #header>
-        <div class="card-header"><strong>我的 API Keys</strong><span>完整 Key 仅生成时展示</span></div>
+        <div class="card-header"><strong>我的 API Keys</strong><span>完整 Key 加密保存，可重复查看</span></div>
       </template>
       <el-table :data="keys" empty-text="尚未生成 API Key">
         <el-table-column prop="name" label="名称" />
         <el-table-column prop="key_prefix" label="Key 前缀" min-width="190" />
-        <el-table-column prop="created_at" label="创建时间" min-width="180" />
+        <el-table-column label="创建时间" min-width="180">
+          <template #default="{ row }">
+            {{ formatBeijingTime(row.created_at) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="last_used_at" label="最后使用" min-width="180">
-          <template #default="{ row }">{{ row.last_used_at || "从未使用" }}</template>
+          <template #default="{ row }">
+            {{ formatBeijingTime(row.last_used_at, "从未使用") }}
+          </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.status === 'active' ? 'success' : 'info'">{{ row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100">
+        <el-table-column label="操作" width="180">
           <template #default="{ row }">
+            <el-button
+              v-if="row.can_reveal"
+              link
+              type="primary"
+              @click="revealKey(row)"
+            >
+              查看/复制
+            </el-button>
+            <el-tooltip
+              v-else
+              content="该 Key 创建于加密存储启用前，原文无法恢复"
+              placement="top"
+            >
+              <el-button link disabled>不可查看</el-button>
+            </el-tooltip>
             <el-button v-if="row.status === 'active'" link type="danger" @click="revoke(row.id)">吊销</el-button>
           </template>
         </el-table-column>
@@ -161,18 +236,20 @@ onMounted(load);
       </template>
       <pre class="code-block">{{ curlExample }}</pre>
       <p class="muted compact">
-        出于安全考虑，已关闭页面的完整 API Key 无法再次读取；遗失后请吊销并重新生成。
+        完整 API Key 使用服务端加密保存；认证仍只通过哈希校验。
       </p>
     </el-card>
 
     <el-dialog
       v-model="keyDialogVisible"
-      title="API Key 已生成"
+      :title="keyDialogTitle"
       width="620px"
       :close-on-click-modal="false"
       @closed="generatedKey = ''"
     >
-      <el-alert type="warning" :closable="false">这是唯一一次显示完整 Key，请立即复制并妥善保存。</el-alert>
+      <el-alert type="warning" :closable="false">
+        完整 Key 属于敏感凭证，请勿发送到公开聊天或截图中。
+      </el-alert>
       <div class="secret-value"><code>{{ generatedKey }}</code></div>
       <template #footer>
         <el-button type="primary" @click="copy(generatedKey)">复制 API Key</el-button>

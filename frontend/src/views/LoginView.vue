@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { authApi } from "@/api";
 import { errorMessage } from "@/api/http";
+import { preloadDashboardWhenIdle } from "@/router/viewLoaders";
 
 const router = useRouter();
 const loading = ref(false);
@@ -17,6 +18,8 @@ const form = reactive({
 const apiConfigured =
   Boolean(import.meta.env.VITE_API_URL) ||
   !window.location.hostname.endsWith("github.io");
+
+onMounted(preloadDashboardWhenIdle);
 
 async function submit() {
   if (!apiConfigured) return;
@@ -60,7 +63,7 @@ async function submit() {
     localStorage.setItem("access_token", data.access_token);
     localStorage.setItem("user", JSON.stringify(data.user));
     if (mode.value === "register") ElMessage.success("注册成功");
-    router.push("/");
+    await router.push("/");
   } catch (error) {
     ElMessage.error(errorMessage(error));
   } finally {

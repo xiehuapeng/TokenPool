@@ -17,6 +17,12 @@ class StreamEvent:
     comment: str | None = None
 
 
+@dataclass(slots=True)
+class ProviderModel:
+    id: str
+    owned_by: str | None = None
+
+
 class ProviderStream(ABC):
     http_status: int
     upstream_request_id: str | None
@@ -33,6 +39,9 @@ class ProviderStream(ABC):
 class BaseProvider(ABC):
     code: str
 
+    async def list_models(self, *, timeout_seconds: int) -> list[ProviderModel]:
+        raise NotImplementedError
+
     @abstractmethod
     async def chat_completion(
         self, payload: dict[str, Any], *, upstream_model: str, timeout_seconds: int
@@ -44,4 +53,3 @@ class BaseProvider(ABC):
         self, payload: dict[str, Any], *, upstream_model: str, timeout_seconds: int
     ) -> ProviderStream:
         raise NotImplementedError
-

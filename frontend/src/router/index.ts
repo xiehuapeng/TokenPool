@@ -1,25 +1,27 @@
 import { createRouter, createWebHashHistory } from "vue-router";
-import LoginView from "@/views/LoginView.vue";
-import AppLayout from "@/components/AppLayout.vue";
-import DashboardView from "@/views/DashboardView.vue";
-import DocsView from "@/views/DocsView.vue";
-import ModelsView from "@/views/ModelsView.vue";
-import UsageView from "@/views/UsageView.vue";
-import AdminView from "@/views/AdminView.vue";
+import {
+  loadAdminView,
+  loadAppLayout,
+  loadDashboardView,
+  loadDocsView,
+  loadLoginView,
+  loadModelsView,
+  loadUsageView,
+} from "./viewLoaders";
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
-    { path: "/login", component: LoginView, meta: { public: true } },
+    { path: "/login", component: loadLoginView, meta: { public: true } },
     {
       path: "/",
-      component: AppLayout,
+      component: loadAppLayout,
       children: [
-        { path: "", component: DashboardView },
-        { path: "docs", component: DocsView },
-        { path: "models", component: ModelsView },
-        { path: "usage", component: UsageView },
-        { path: "admin", component: AdminView, meta: { admin: true } },
+        { path: "", component: loadDashboardView },
+        { path: "docs", component: loadDocsView },
+        { path: "models", component: loadModelsView },
+        { path: "usage", component: loadUsageView },
+        { path: "admin", component: loadAdminView, meta: { admin: true } },
       ],
     },
   ],

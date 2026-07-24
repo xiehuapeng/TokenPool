@@ -5,10 +5,7 @@ from sqlalchemy import select, update
 from app.database.session import SessionLocal
 from app.models import UsageLog
 from app.utils.redaction import redact_secrets
-
-
-def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+from app.utils.time import utc_now
 
 
 async def create_usage_log(
@@ -21,7 +18,7 @@ async def create_usage_log(
     upstream_model: str,
     stream: bool,
 ) -> datetime:
-    started = now_utc()
+    started = utc_now()
     async with SessionLocal() as session:
         session.add(
             UsageLog(
@@ -53,7 +50,7 @@ async def finish_usage_log(
     error_message: str | None = None,
     upstream_request_id: str | None = None,
 ) -> None:
-    finished = now_utc()
+    finished = utc_now()
     usage = usage or {}
     values = {
         "response_time": finished,
@@ -88,7 +85,7 @@ async def recover_stale_usage_logs(max_age_minutes: int = 5) -> int:
     and records created by older gateway versions.
     """
 
-    finished = now_utc()
+    finished = utc_now()
     cutoff = finished - timedelta(minutes=max_age_minutes)
     async with SessionLocal() as session:
         stale_logs = list(

@@ -2,11 +2,12 @@ import base64
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import jwt
 
 from app.config.settings import get_settings
+from app.utils.time import utc_now
 
 
 SCRYPT_N = 2**14
@@ -58,7 +59,7 @@ def verify_password(password: str, encoded: str) -> bool:
 
 def create_access_token(user_id: int) -> tuple[str, int]:
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = utc_now()
     expires = now + timedelta(minutes=settings.jwt_expire_minutes)
     token = jwt.encode(
         {
