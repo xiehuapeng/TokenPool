@@ -37,6 +37,13 @@ export function preloadAuthenticatedViewsWhenIdle(isAdmin: boolean) {
   whenBrowserIsIdle(() => {
     const loaders = [loadDocsView(), loadModelsView(), loadUsageView()];
     if (isAdmin) loaders.push(loadAdminView());
-    void Promise.allSettled(loaders);
+    void Promise.allSettled(loaders).then((results) => {
+      const failed = results.filter((result) => result.status === "rejected");
+      if (failed.length) {
+        console.warn(
+          `${failed.length} deferred page module(s) failed to preload; navigation will retry them.`,
+        );
+      }
+    });
   }, 1800);
 }

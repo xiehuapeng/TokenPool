@@ -1,12 +1,20 @@
 import { defineConfig, loadEnv } from "vite";
 import vue from "@vitejs/plugin-vue";
+import Components from "unplugin-vue-components/vite";
+import { ElementPlusResolver } from "unplugin-vue-components/resolvers";
 import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
     base: env.VITE_BASE_PATH || "/",
-    plugins: [vue()],
+    plugins: [
+      vue(),
+      Components({
+        resolvers: [ElementPlusResolver()],
+        dts: "src/components.d.ts",
+      }),
+    ],
     resolve: {
       alias: {
         "@": fileURLToPath(new URL("./src", import.meta.url)),
@@ -19,6 +27,14 @@ export default defineConfig(({ mode }) => {
             const id = moduleId.replace(/\\/g, "/");
             if (!id.includes("/node_modules/")) return undefined;
             if (
+              id.includes("/vue/") ||
+              id.includes("/@vue/") ||
+              id.includes("/vue-router/")
+            ) {
+              return "vue-core";
+            }
+            if (id.includes("/axios/")) return "http-client";
+            if (
               id.includes("/element-plus/") ||
               id.includes("/@element-plus/") ||
               id.includes("/@vueuse/") ||
@@ -30,16 +46,8 @@ export default defineConfig(({ mode }) => {
               id.includes("/escape-html/") ||
               id.includes("/@ctrl/tinycolor/")
             ) {
-              return "element-plus";
+              return undefined;
             }
-            if (
-              id.includes("/vue/") ||
-              id.includes("/@vue/") ||
-              id.includes("/vue-router/")
-            ) {
-              return "vue-core";
-            }
-            if (id.includes("/axios/")) return "http-client";
             return "vendor";
           },
         },

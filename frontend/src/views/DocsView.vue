@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
+import "element-plus/es/components/message/style/css";
 import { meApi } from "@/api";
 import { copyText } from "@/utils/clipboard";
 

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import "element-plus/es/components/message/style/css";
+import "element-plus/es/components/message-box/style/css";
 import { meApi, type ApiKeyItem } from "@/api";
 import { errorMessage } from "@/api/http";
 import { copyText } from "@/utils/clipboard";
@@ -78,7 +80,7 @@ async function createKey() {
   }
 }
 
-async function revealKey(row: ApiKeyItem) {
+async function revealKey(row: any) {
   try {
     const { data } = await meApi.revealKey(row.id);
     generatedKey.value = data.value;

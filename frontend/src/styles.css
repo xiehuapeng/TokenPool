@@ -81,12 +81,17 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .page-heading p { margin: 7px 0 0; color: #667085; }
 .el-card { border-color: #e4eaf2 !important; border-radius: 12px !important; }
 .section-card { margin-top: 20px; }
-.hero-card { color: #fff; background: linear-gradient(135deg, #182438, #273a57) !important; border: 0 !important; }
-.hero-card h3 { margin: 12px 0; font-size: 20px; }
+.el-card.hero-card,
+.el-card.hero-card .el-card__body {
+  color: #fff;
+}
+.el-card.hero-card { background: linear-gradient(135deg, #182438, #273a57) !important; border: 0 !important; }
+.hero-card h3 { margin: 12px 0; color: #fff; font-size: 20px; }
+.hero-card code { color: #fff; }
 .hero-card p { margin-bottom: 0; color: #aeb9ce; font-size: 13px; }
 .eyebrow { color: #78aef7; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; }
 .copy-value { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; border-radius: 8px; background: rgba(0,0,0,.22); }
-.hero-card .el-button { color: #8fc1ff; }
+.el-card.hero-card .el-button { color: #8fc1ff; }
 .steps { margin: 0; padding-left: 23px; line-height: 2.5; color: #475467; }
 .guide-steps { margin: 6px 0; padding-left: 24px; line-height: 2.2; color: #475467; }
 .model-pills { display: flex; flex-wrap: wrap; gap: 10px; min-height: 42px; align-items: center; }

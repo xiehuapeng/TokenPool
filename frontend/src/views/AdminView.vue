@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import "element-plus/es/components/message/style/css";
+import "element-plus/es/components/message-box/style/css";
 import { adminApi } from "@/api";
 import { errorMessage } from "@/api/http";
 import { formatBeijingTime } from "@/utils/time";
@@ -390,7 +392,7 @@ onMounted(loadAll);
               <template #default="{ row }">
                 <el-switch
                   v-model="row.enabled"
-                  @change="(value: boolean) => setModelEnabled(row, value)"
+                  @change="(value) => setModelEnabled(row, Boolean(value))"
                 />
               </template>
             </el-table-column>

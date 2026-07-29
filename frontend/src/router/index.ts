@@ -8,6 +8,10 @@ import {
   loadModelsView,
   loadUsageView,
 } from "./viewLoaders";
+import {
+  clearChunkLoadRetry,
+  recoverChunkLoad,
+} from "@/utils/chunkRecovery";
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -33,6 +37,16 @@ router.beforeEach((to) => {
   if (!to.meta.public && !token) return "/login";
   if (to.meta.admin && !user?.is_admin) return "/";
   if (to.path === "/login" && token) return "/";
+});
+
+router.onError((error, to) => {
+  if (!recoverChunkLoad(error, to.fullPath)) {
+    console.error("Router navigation failed", error);
+  }
+});
+
+router.afterEach((to, _from, failure) => {
+  if (!failure) clearChunkLoadRetry(to.fullPath);
 });
 
 export default router;
