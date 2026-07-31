@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import "element-plus/es/components/message/style/css";
 import "element-plus/es/components/message-box/style/css";
@@ -17,40 +17,43 @@ const keyDialogVisible = ref(false);
 const keyDialogTitle = ref("API Key");
 const models = ref<any[]>([]);
 const selectedModel = ref("");
+const savedSelectedModel = ref("");
+const gatewayModel = ref("team-coding");
+const savingModel = ref(false);
 const activeModels = computed(() =>
   models.value.filter((item) => item.status === "enabled"),
 );
-const defaultModel = computed(
-  () => selectedModel.value || activeModels.value[0]?.id || "deepseek-v4-flash",
-);
 const isLegacyModel = computed(() =>
-  ["deepseek-chat", "deepseek-reasoner"].includes(defaultModel.value),
+  ["deepseek-chat", "deepseek-reasoner"].includes(selectedModel.value),
 );
 const curlExample = computed(() => `curl ${baseUrl.value}/chat/completions \\
   -H "Authorization: Bearer ${generatedKey.value || "sk-team-your-key"}" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "${defaultModel.value}",
+    "model": "${gatewayModel.value}",
     "messages": [{"role": "user", "content": "你好"}]
   }'`);
 
 async function load() {
   loading.value = true;
   try {
-    const [config, keyList, modelList] = await Promise.all([
+    const [config, keyList, modelList, preference] = await Promise.all([
       meApi.config(),
       meApi.keys(),
       meApi.models(),
+      meApi.modelPreference(),
     ]);
     baseUrl.value = config.data.base_url;
     keys.value = keyList.data;
     models.value = modelList.data;
-    const savedModel = localStorage.getItem("preferred_model");
+    gatewayModel.value = preference.data.gateway_model;
+    const preferredModel = preference.data.selected_model;
     selectedModel.value = activeModels.value.some(
-      (item) => item.id === savedModel,
+      (item) => item.id === preferredModel,
     )
-      ? savedModel || ""
+      ? preferredModel || ""
       : activeModels.value[0]?.id || "";
+    savedSelectedModel.value = selectedModel.value;
   } catch (error) {
     ElMessage.error(errorMessage(error));
   } finally {
@@ -60,9 +63,22 @@ async function load() {
   }
 }
 
-watch(selectedModel, (value) => {
-  if (value) localStorage.setItem("preferred_model", value);
-});
+async function saveModelPreference(value: string) {
+  if (!value || value === savedSelectedModel.value) return;
+  const previous = savedSelectedModel.value;
+  savingModel.value = true;
+  try {
+    const response = await meApi.updateModelPreference(value);
+    selectedModel.value = response.data.selected_model || value;
+    savedSelectedModel.value = selectedModel.value;
+    ElMessage.success("实际调用模型已更新，Trae 下一次请求生效");
+  } catch (error) {
+    selectedModel.value = previous;
+    ElMessage.error(errorMessage(error));
+  } finally {
+    savingModel.value = false;
+  }
+}
 
 async function createKey() {
   try {
@@ -137,15 +153,17 @@ onMounted(load);
         <el-card shadow="never">
           <template #header>
             <div class="card-header">
-              <strong>当前支持模型</strong>
-              <el-button link @click="copy(defaultModel)">复制所选模型</el-button>
+              <strong>我的实际调用模型</strong>
+              <el-button link @click="copy(gatewayModel)">复制固定模型 ID</el-button>
             </div>
           </template>
           <el-select
             v-model="selectedModel"
             class="model-select"
-            placeholder="选择模型"
-            aria-label="选择默认模型"
+            placeholder="选择实际调用模型"
+            aria-label="选择实际调用模型"
+            :disabled="savingModel"
+            @change="saveModelPreference"
           >
             <el-option
               v-for="model in activeModels"
@@ -170,7 +188,8 @@ onMounted(load);
             />
           </div>
           <p class="muted compact">
-            Provider 选择 OpenAI Compatible，模型名称必须与此处完全一致。
+            Trae 等工具始终填写 <code>{{ gatewayModel }}</code>。修改这里后，
+            下一次请求会自动路由到所选真实模型。
           </p>
           <el-alert
             v-if="isLegacyModel"

@@ -3,35 +3,34 @@ import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import "element-plus/es/components/message/style/css";
 import { meApi } from "@/api";
+import { errorMessage } from "@/api/http";
 import { copyText } from "@/utils/clipboard";
 
 const baseUrl = ref("http://localhost:8000/v1");
-const models = ref<any[]>([]);
+const gatewayModel = ref("team-coding");
 const selectedModel = ref("");
-const defaultModel = computed(
-  () => selectedModel.value || models.value[0]?.id || "deepseek-v4-flash",
-);
 const curl = computed(() => `curl ${baseUrl.value}/chat/completions \\
   -H "Authorization: Bearer sk-team-xxxx" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "${defaultModel.value}",
+    "model": "${gatewayModel.value}",
     "messages": [
       {"role": "user", "content": "你好"}
     ]
   }'`);
 
 onMounted(async () => {
-  const [configResponse, modelsResponse] = await Promise.all([
-    meApi.config(),
-    meApi.models(),
-  ]);
-  baseUrl.value = configResponse.data.base_url;
-  models.value = modelsResponse.data.filter((item: any) => item.status === "enabled");
-  const savedModel = localStorage.getItem("preferred_model");
-  selectedModel.value = models.value.some((item: any) => item.id === savedModel)
-    ? String(savedModel)
-    : models.value[0]?.id || "";
+  try {
+    const [configResponse, preferenceResponse] = await Promise.all([
+      meApi.config(),
+      meApi.modelPreference(),
+    ]);
+    baseUrl.value = configResponse.data.base_url;
+    gatewayModel.value = preferenceResponse.data.gateway_model;
+    selectedModel.value = preferenceResponse.data.selected_model || "暂未选择";
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  }
 });
 
 async function copy(value: string) {
@@ -45,17 +44,13 @@ async function copy(value: string) {
   }
 }
 
-function saveSelectedModel(value: string) {
-  localStorage.setItem("preferred_model", value);
-}
-
 const tools = [
   {
     name: "Cursor",
     steps: [
       "打开 Cursor Settings，进入 Models 或 Provider 配置。",
       "选择 OpenAI Compatible 或 Override OpenAI Base URL。",
-      "填写下方 Base URL、个人 API Key 和模型名。",
+      "填写下方 Base URL、个人 API Key 和固定模型 ID。",
     ],
   },
   {
@@ -63,7 +58,7 @@ const tools = [
     steps: [
       "进入 AI 模型或自定义模型设置。",
       "Provider 选择 OpenAI Compatible。",
-      "填写 Base URL、个人 API Key，并添加下方选择的模型名。",
+      "填写 Base URL、个人 API Key，并添加固定模型 ID team-coding。",
     ],
   },
   {
@@ -71,7 +66,7 @@ const tools = [
     steps: [
       "进入模型服务配置，添加自定义 OpenAI Compatible 服务。",
       "填写网关 Base URL 和个人 API Key。",
-      "选择或手动填写下方选择的模型名。",
+      "模型 ID 固定填写 team-coding，真实模型在网站工作台选择。",
     ],
   },
 ];
@@ -92,19 +87,8 @@ const tools = [
         <el-descriptions-item label="Base URL"><code>{{ baseUrl }}</code></el-descriptions-item>
         <el-descriptions-item label="API Key"><code>工作台生成的个人 Key</code></el-descriptions-item>
         <el-descriptions-item label="Model">
-          <el-select
-            v-model="selectedModel"
-            class="model-select"
-            @change="saveSelectedModel"
-          >
-            <el-option
-              v-for="model in models"
-              :key="model.id"
-              :label="model.display_name || model.id"
-              :value="model.id"
-            />
-          </el-select>
-          <code class="selected-model-code">{{ defaultModel }}</code>
+          <code class="selected-model-code">{{ gatewayModel }}</code>
+          <span class="muted">当前实际路由：{{ selectedModel }}</span>
         </el-descriptions-item>
       </el-descriptions>
     </el-card>
@@ -131,11 +115,10 @@ const tools = [
       Base URL 已包含 /v1，工具中不要重复填写 /v1/v1。
     </el-alert>
     <el-alert
-      v-if="['deepseek-chat', 'deepseek-reasoner'].includes(defaultModel)"
       class="section-card"
-      type="warning"
+      type="success"
       :closable="false"
-      title="当前选择的是 DeepSeek 兼容旧别名，建议改用 deepseek-v4-flash 或 deepseek-v4-pro。"
+      title="Trae、Cursor、Qoder 只需配置一次 team-coding；以后在工作台切换真实模型即可。"
     />
   </div>
 </template>

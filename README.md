@@ -9,6 +9,7 @@
 - `GET /v1/models`
 - `GET /health`
 - DeepSeek Provider 与数据库模型路由
+- 固定虚拟模型 `team-coding`，用户可在工作台选择实际调用模型
 - 账号密码登录、随机 API Key 生成与吊销
 - API Key 只在生成时完整显示一次，数据库仅保存摘要
 - 用户用量、管理员 Token 聚合和调用日志
@@ -84,7 +85,7 @@ npm run dev
 ```text
 Base URL: http://localhost:8000/v1
 API Key:  在前端工作台生成的 sk-team-...
-Model:    deepseek-chat
+Model:    team-coding
 ```
 
 ### 5. Curl
@@ -95,7 +96,7 @@ $headers = @{
   "Content-Type" = "application/json"
 }
 $body = @{
-  model = "deepseek-chat"
+  model = "team-coding"
   messages = @(@{ role = "user"; content = "介绍一下自己" })
 } | ConvertTo-Json -Depth 5
 Invoke-RestMethod -Uri "http://localhost:8000/v1/chat/completions" `

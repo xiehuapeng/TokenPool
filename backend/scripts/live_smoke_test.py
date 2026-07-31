@@ -67,13 +67,19 @@ def main() -> int:
             models = client.get("/v1/models", headers=api_headers)
             require(models.status_code == 200, "/v1/models failed")
             model_ids = [item["id"] for item in models.json()["data"]]
-            require("deepseek-chat" in model_ids, "deepseek-chat is not visible")
+            require("team-coding" in model_ids, "team-coding is not visible")
+            preference = client.get(
+                "/api/me/model-preference", headers=web_headers
+            )
+            require(preference.status_code == 200, "Model preference query failed")
+            actual_model = preference.json().get("selected_model")
+            require(bool(actual_model), "No effective model is selected")
 
             non_stream = client.post(
                 "/v1/chat/completions",
                 headers=api_headers,
                 json={
-                    "model": "deepseek-chat",
+                    "model": "team-coding",
                     "messages": [
                         {
                             "role": "user",
@@ -81,7 +87,7 @@ def main() -> int:
                         }
                     ],
                     "stream": False,
-                    "max_tokens": 32,
+                    "max_tokens": 256,
                 },
             )
             require(
@@ -101,7 +107,7 @@ def main() -> int:
                 "/v1/chat/completions",
                 headers=api_headers,
                 json={
-                    "model": "deepseek-chat",
+                    "model": "team-coding",
                     "messages": [
                         {
                             "role": "user",
@@ -109,7 +115,7 @@ def main() -> int:
                         }
                     ],
                     "stream": True,
-                    "max_tokens": 32,
+                    "max_tokens": 256,
                 },
             ) as stream:
                 require(stream.status_code == 200, "SSE request failed")
@@ -131,7 +137,7 @@ def main() -> int:
                 "/v1/chat/completions",
                 headers=api_headers,
                 json={
-                    "model": "deepseek-chat",
+                    "model": "team-coding",
                     "messages": [{"role": "user", "content": "invalid request test"}],
                     "max_tokens": -1,
                 },
@@ -157,17 +163,26 @@ def main() -> int:
             require(usage_matches(non_log, non_usage), "Non-stream usage mismatch")
             require(usage_matches(stream_log, stream_usage), "SSE usage mismatch")
             require(failed_log["status"] == "failed", "Failure log status mismatch")
+            for item in (non_log, stream_log, failed_log):
+                require(
+                    item["requested_model"] == "team-coding",
+                    "Requested model audit mismatch",
+                )
+                require(
+                    item["model"] == actual_model,
+                    "Actual model audit mismatch",
+                )
 
             stats = client.get("/api/admin/stats", headers=web_headers)
             require(stats.status_code == 200, "Admin stats query failed")
             expected_tokens = non_usage["total_tokens"] + stream_usage["total_tokens"]
-            deepseek_tokens = sum(
+            actual_model_tokens = sum(
                 item["tokens"]
                 for item in stats.json()["by_model"]
-                if item["model"] == "deepseek-chat"
+                if item["model"] == actual_model
             )
             require(
-                deepseek_tokens >= expected_tokens,
+                actual_model_tokens >= expected_tokens,
                 "Admin token aggregation is lower than live usage",
             )
 
@@ -175,6 +190,7 @@ def main() -> int:
                 json.dumps(
                     {
                         "models": model_ids,
+                        "actual_model": actual_model,
                         "non_stream": {
                             "status": non_stream.status_code,
                             "usage": non_usage,
@@ -190,7 +206,7 @@ def main() -> int:
                             "status": failed.status_code,
                             "log_status": failed_log["status"],
                         },
-                        "admin_stats_deepseek_tokens": deepseek_tokens,
+                        "admin_stats_actual_model_tokens": actual_model_tokens,
                     },
                     ensure_ascii=False,
                     indent=2,

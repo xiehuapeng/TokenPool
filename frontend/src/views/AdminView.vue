@@ -447,7 +447,8 @@ onMounted(loadAll);
               </template>
             </el-table-column>
             <el-table-column prop="username" label="用户" />
-            <el-table-column prop="model" label="模型" min-width="150" />
+            <el-table-column prop="requested_model" label="请求模型" min-width="140" />
+            <el-table-column prop="model" label="实际模型" min-width="150" />
             <el-table-column prop="provider" label="Provider" />
             <el-table-column prop="total_tokens" label="Token" />
             <el-table-column prop="status" label="状态" />

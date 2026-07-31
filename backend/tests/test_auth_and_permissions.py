@@ -60,8 +60,18 @@ async def test_models_are_filtered_per_user_permission(client):
     denied = await client.get(
         "/v1/models", headers={"Authorization": f"Bearer {denied_key}"}
     )
-    assert [item["id"] for item in allowed.json()["data"]] == ["deepseek-chat"]
+    assert [item["id"] for item in allowed.json()["data"]] == ["team-coding"]
     assert denied.json()["data"] == []
+
+    denied_preference = await client.put(
+        "/api/me/model-preference",
+        headers={
+            "Authorization": f"Bearer {await login(client, 'denied-user', 'secure-password1')}"
+        },
+        json={"model": "deepseek-chat"},
+    )
+    assert denied_preference.status_code == 403
+    assert denied_preference.json()["error"]["code"] == "model_permission_denied"
 
     denied_chat = await client.post(
         "/v1/chat/completions",
@@ -73,6 +83,17 @@ async def test_models_are_filtered_per_user_permission(client):
     )
     assert denied_chat.status_code == 403
     assert denied_chat.json()["error"]["code"] == "model_permission_denied"
+
+    denied_virtual_chat = await client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {denied_key}"},
+        json={
+            "model": "team-coding",
+            "messages": [{"role": "user", "content": "should not be sent"}],
+        },
+    )
+    assert denied_virtual_chat.status_code == 403
+    assert denied_virtual_chat.json()["error"]["code"] == "no_permitted_model"
 
 
 @pytest.mark.asyncio

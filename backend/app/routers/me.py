@@ -13,6 +13,12 @@ from app.schemas.api_key import (
     ApiKeyView,
     SecretReveal,
 )
+from app.schemas.model import ModelPreferenceUpdate, ModelPreferenceView
+from app.services.model_router import (
+    GATEWAY_MODEL_ID,
+    list_permitted_models,
+    resolve_model,
+)
 from app.utils.errors import GatewayError
 from app.utils.secret_store import decrypt_secret, encrypt_secret
 from app.utils.security import generate_api_key, generate_retired_api_key_hash
@@ -148,7 +154,7 @@ async def revoke_api_key(
 
 @router.get("/models")
 async def list_available_models(
-    _user: Annotated[User, Depends(current_user)], session: DbSession
+    user: Annotated[User, Depends(current_user)], session: DbSession
 ) -> list[dict]:
     rows = await session.execute(
         select(ModelConfig, ProviderConfig)
@@ -162,9 +168,50 @@ async def list_available_models(
             "provider": provider.display_name,
             "status": "enabled" if model.enabled and provider.enabled else "planned",
             "capabilities": model.capabilities,
+            "selected": model.id == user.preferred_model_id,
         }
         for model, provider in rows
     ]
+
+
+@router.get("/model-preference", response_model=ModelPreferenceView)
+async def get_model_preference(
+    user: Annotated[User, Depends(current_user)], session: DbSession
+) -> ModelPreferenceView:
+    if user.preferred_model_id is not None:
+        preferred = await session.get(ModelConfig, user.preferred_model_id)
+        return ModelPreferenceView(
+            gateway_model=GATEWAY_MODEL_ID,
+            selected_model=preferred.public_model if preferred else None,
+            selection_source="user",
+        )
+
+    permitted = await list_permitted_models(session, user_id=user.id)
+    return ModelPreferenceView(
+        gateway_model=GATEWAY_MODEL_ID,
+        selected_model=permitted[0].public_model if permitted else None,
+        selection_source="default",
+    )
+
+
+@router.put("/model-preference", response_model=ModelPreferenceView)
+async def update_model_preference(
+    body: ModelPreferenceUpdate,
+    user: Annotated[User, Depends(current_user)],
+    session: DbSession,
+) -> ModelPreferenceView:
+    route = await resolve_model(
+        session,
+        user_id=user.id,
+        public_model=body.model,
+    )
+    user.preferred_model_id = route.model.id
+    await session.commit()
+    return ModelPreferenceView(
+        gateway_model=GATEWAY_MODEL_ID,
+        selected_model=route.model.public_model,
+        selection_source="user",
+    )
 
 
 @router.get("/usage/summary")

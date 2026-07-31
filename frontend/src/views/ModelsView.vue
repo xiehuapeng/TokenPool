@@ -15,6 +15,11 @@ onMounted(async () => {
       <el-table :data="models">
         <el-table-column prop="id" label="模型" min-width="200" />
         <el-table-column prop="provider" label="Provider" />
+        <el-table-column label="我的选择" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.selected" type="primary">当前</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="能力" min-width="220">
           <template #default="{ row }">
             <el-tag v-for="(_, name) in row.capabilities" :key="name" class="cap-tag" effect="plain">{{ name }}</el-tag>
@@ -31,4 +36,3 @@ onMounted(async () => {
     </el-card>
   </div>
 </template>
-

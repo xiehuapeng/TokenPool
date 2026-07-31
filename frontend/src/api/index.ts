@@ -19,6 +19,12 @@ export interface ApiKeyItem {
   can_reveal: boolean;
 }
 
+export interface ModelPreference {
+  gateway_model: string;
+  selected_model: string | null;
+  selection_source: "user" | "default";
+}
+
 export const authApi = {
   login: (username: string, password: string) =>
     http.post("/api/auth/login", { username, password }),
@@ -39,6 +45,10 @@ export const meApi = {
     http.get<{ value: string }>(`/api/me/api-keys/${id}/secret`),
   revokeKey: (id: number) => http.delete(`/api/me/api-keys/${id}`),
   models: () => http.get("/api/me/models"),
+  modelPreference: () =>
+    http.get<ModelPreference>("/api/me/model-preference"),
+  updateModelPreference: (model: string) =>
+    http.put<ModelPreference>("/api/me/model-preference", { model }),
   usage: () => http.get("/api/me/usage/summary"),
 };
 

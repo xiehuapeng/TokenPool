@@ -14,7 +14,11 @@ from app.schemas.openai import (
     OpenAIModelList,
 )
 from app.services.auth_service import ApiPrincipal
-from app.services.model_router import list_permitted_models, resolve_model
+from app.services.model_router import (
+    GATEWAY_MODEL_ID,
+    list_permitted_models,
+    resolve_requested_model,
+)
 from app.services.usage_service import (
     create_usage_log,
     finish_usage_log,
@@ -32,7 +36,9 @@ async def models(
     principal: Annotated[ApiPrincipal, Depends(api_principal)], session: DbSession
 ) -> OpenAIModelList:
     permitted = await list_permitted_models(session, user_id=principal.user.id)
-    return OpenAIModelList(data=[OpenAIModel(id=item.public_model) for item in permitted])
+    return OpenAIModelList(
+        data=[OpenAIModel(id=GATEWAY_MODEL_ID)] if permitted else []
+    )
 
 
 @router.post("/chat/completions")
@@ -42,8 +48,10 @@ async def chat_completions(
     principal: Annotated[ApiPrincipal, Depends(api_principal)],
     session: DbSession,
 ):
-    route = await resolve_model(
-        session, user_id=principal.user.id, public_model=body.model
+    route = await resolve_requested_model(
+        session,
+        user_id=principal.user.id,
+        requested_model=body.model,
     )
     request_id = f"req_{uuid.uuid4().hex}"
     payload = body.model_dump(exclude_none=True)
@@ -51,7 +59,8 @@ async def chat_completions(
         request_id=request_id,
         user_id=principal.user.id,
         api_key_id=principal.api_key.id,
-        model=body.model,
+        requested_model=body.model,
+        model=route.model.public_model,
         provider=route.provider_config.code,
         upstream_model=route.model.upstream_model,
         stream=body.stream,
