@@ -23,6 +23,19 @@ const savingModel = ref(false);
 const activeModels = computed(() =>
   models.value.filter((item) => item.status === "enabled"),
 );
+const modelGroups = computed(() => {
+  const grouped = new Map<string, any[]>();
+  for (const model of activeModels.value) {
+    const provider = model.provider || "其他 Provider";
+    const providerModels = grouped.get(provider) || [];
+    providerModels.push(model);
+    grouped.set(provider, providerModels);
+  }
+  return Array.from(grouped, ([provider, providerModels]) => ({
+    provider,
+    models: providerModels,
+  }));
+});
 const isLegacyModel = computed(() =>
   ["deepseek-chat", "deepseek-reasoner"].includes(selectedModel.value),
 );
@@ -71,7 +84,7 @@ async function saveModelPreference(value: string) {
     const response = await meApi.updateModelPreference(value);
     selectedModel.value = response.data.selected_model || value;
     savedSelectedModel.value = selectedModel.value;
-    ElMessage.success("实际调用模型已更新，Trae 下一次请求生效");
+    ElMessage.success("实际调用模型已更新，下一次调用生效");
   } catch (error) {
     selectedModel.value = previous;
     ElMessage.error(errorMessage(error));
@@ -165,22 +178,37 @@ onMounted(load);
             :disabled="savingModel"
             @change="saveModelPreference"
           >
-            <el-option
-              v-for="model in activeModels"
-              :key="model.id"
-              :label="model.display_name || model.id"
-              :value="model.id"
-            />
-          </el-select>
-          <div class="model-pills">
-            <el-tag
-              v-for="model in activeModels"
-              :key="model.id"
-              size="large"
-              effect="plain"
+            <el-option-group
+              v-for="group in modelGroups"
+              :key="group.provider"
+              :label="group.provider"
             >
-              {{ model.id }}
-            </el-tag>
+              <el-option
+                v-for="model in group.models"
+                :key="model.id"
+                :label="model.display_name || model.id"
+                :value="model.id"
+              />
+            </el-option-group>
+          </el-select>
+          <div class="model-provider-groups">
+            <section
+              v-for="group in modelGroups"
+              :key="group.provider"
+              class="model-provider-group"
+            >
+              <div class="model-provider-name">{{ group.provider }}</div>
+              <div class="model-pills">
+                <el-tag
+                  v-for="model in group.models"
+                  :key="model.id"
+                  size="large"
+                  effect="plain"
+                >
+                  {{ model.id }}
+                </el-tag>
+              </div>
+            </section>
             <el-empty
               v-if="!activeModels.length"
               description="暂无可用模型"

@@ -24,6 +24,11 @@ async def health(session: DbSession) -> dict:
             and not settings.deepseek_api_key.get_secret_value()
         ):
             provider_states[provider.code] = "unconfigured"
+        elif (
+            provider.code == "glm"
+            and not settings.glm_api_key.get_secret_value()
+        ):
+            provider_states[provider.code] = "unconfigured"
         else:
             provider_states[provider.code] = "available"
     return {"status": "ok", "providers": provider_states}

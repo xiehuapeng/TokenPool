@@ -8,7 +8,7 @@
 - `POST /v1/chat/completions`，支持普通响应和 SSE
 - `GET /v1/models`
 - `GET /health`
-- DeepSeek Provider 与数据库模型路由
+- DeepSeek、智谱 GLM Provider 与数据库模型路由
 - 固定虚拟模型 `team-coding`，用户可在工作台选择实际调用模型
 - 账号密码登录、随机 API Key 生成与吊销
 - API Key 只在生成时完整显示一次，数据库仅保存摘要
@@ -51,6 +51,8 @@ API_KEY_PEPPER=另一个足够长的随机值
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=管理员初始密码
 DEEPSEEK_API_KEY=新生成的DeepSeek密钥
+GLM_API_KEY=智谱API密钥
+GLM_BASE_URL=https://open.bigmodel.cn/api/coding/paas/v4
 ```
 
 已经暴露或提交过的 Provider Key 不应继续使用。
@@ -158,7 +160,7 @@ DATABASE_URL=postgresql+asyncpg://gateway_user:password@postgres:5432/ai_gateway
 - Provider Key 只从环境变量读取。
 - JWT Secret 和 API Key Pepper 没有代码默认值，长度不足 32 字符会拒绝启动。
 - CORS 来源必须显式配置，通配符 `*` 会被拒绝。
-- 日志过滤器会兜底脱敏 Bearer、`sk-` Key 和常见 secret 字段。
+- 日志过滤器会兜底脱敏 Bearer、`sk-` Key、智谱 Key 和常见 secret 字段。
 - 管理接口和用户接口使用登录 JWT；`/v1/*` 使用团队 API Key。
 - `/health` 当前报告配置可用性，不会在每次探测时产生付费模型请求。
 - 用户可以自助注册普通账号；注册接口固定创建非管理员用户，管理员可在后台
@@ -166,7 +168,7 @@ DATABASE_URL=postgresql+asyncpg://gateway_user:password@postgres:5432/ai_gateway
 
 ## 后续演进
 
-数据库结构和 Provider 注册机制已经预留 Kimi、GLM、Qwen、用户模型权限、
+数据库结构和 Provider 注册机制已经预留 Kimi、Qwen、用户模型权限、
 多上游账号、额度和限流。生产部署阶段将补充 PostgreSQL 在线验证、
 Docker Compose、Nginx SSE 配置和进程管理。
 

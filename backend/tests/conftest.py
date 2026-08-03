@@ -22,6 +22,8 @@ os.environ.update(
         "ADMIN_USERNAME": "admin",
         "ADMIN_PASSWORD": "admin-password",
         "DEEPSEEK_API_KEY": "test-upstream-key",
+        "GLM_API_KEY": "test-zhipu-key",
+        "GLM_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
     }
 )
 

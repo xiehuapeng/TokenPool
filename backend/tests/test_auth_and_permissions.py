@@ -42,15 +42,18 @@ async def test_models_are_filtered_per_user_permission(client):
     )
 
     async with SessionLocal() as session:
-        model = await session.scalar(
-            select(ModelConfig).where(ModelConfig.public_model == "deepseek-chat")
+        models = await session.scalars(
+            select(ModelConfig).where(ModelConfig.enabled.is_(True))
         )
-        session.add(
-            UserModelPermission(
-                user_id=denied_user_id,
-                model_config_id=model.id,
-                allowed=False,
-            )
+        session.add_all(
+            [
+                UserModelPermission(
+                    user_id=denied_user_id,
+                    model_config_id=model.id,
+                    allowed=False,
+                )
+                for model in models
+            ]
         )
         await session.commit()
 

@@ -21,6 +21,7 @@ const createUserVisible = ref(false);
 const createInviteVisible = ref(false);
 const providerModelsVisible = ref(false);
 const providerModelsLoading = ref(false);
+const selectedProviderCode = ref("deepseek");
 const availableProviderModels = ref<any[]>([]);
 const selectedProviderModels = ref<string[]>([]);
 const inviteSecretVisible = ref(false);
@@ -179,11 +180,20 @@ async function copy(value: string) {
   }
 }
 
-async function openProviderModels() {
+function selectedProviderName() {
+  return (
+    providers.value.find(
+      (item: any) => item.code === selectedProviderCode.value,
+    )?.display_name || selectedProviderCode.value
+  );
+}
+
+async function openProviderModels(providerCode: string) {
+  selectedProviderCode.value = providerCode;
   providerModelsVisible.value = true;
   providerModelsLoading.value = true;
   try {
-    const response = await adminApi.providerModels("deepseek");
+    const response = await adminApi.providerModels(providerCode);
     availableProviderModels.value = response.data.models;
     selectedProviderModels.value = response.data.models
       .filter((item: any) => item.enabled || !item.configured)
@@ -202,13 +212,13 @@ async function syncProviderModels() {
   }
   providerModelsLoading.value = true;
   try {
-    await adminApi.syncProviderModels("deepseek", {
+    await adminApi.syncProviderModels(selectedProviderCode.value, {
       models: selectedProviderModels.value,
       enable: true,
       default_allowed: true,
     });
     providerModelsVisible.value = false;
-    ElMessage.success("已按 DeepSeek 官方列表同步模型");
+    ElMessage.success(`已按 ${selectedProviderName()} 官方列表同步模型`);
     await loadAll();
   } catch (error) {
     ElMessage.error(errorMessage(error));
@@ -241,13 +251,16 @@ onMounted(loadAll);
       >
         设置邀请码
       </el-button>
-      <el-button
-        v-if="activeTab === 'models'"
-        type="primary"
-        @click="openProviderModels"
-      >
-        同步 DeepSeek 官方模型
-      </el-button>
+      <template v-if="activeTab === 'models'">
+        <el-button
+          v-for="provider in providers.filter((item) => item.enabled)"
+          :key="provider.code"
+          type="primary"
+          @click="openProviderModels(provider.code)"
+        >
+          同步 {{ provider.display_name }} 官方模型
+        </el-button>
+      </template>
     </div>
 
     <el-card shadow="never">
@@ -373,7 +386,7 @@ onMounted(loadAll);
 
         <el-tab-pane label="模型管理" name="models">
           <el-alert
-            title="可从 DeepSeek 官方 /models 接口获取当前可用模型。已有旧模型不会被自动删除或停用，避免影响团队现有配置。"
+            title="可从已启用 Provider 的官方 /models 接口获取当前可用模型。已有旧模型不会被自动删除或停用，避免影响团队现有配置。"
             type="info"
             :closable="false"
             show-icon
@@ -540,11 +553,11 @@ onMounted(loadAll);
 
     <el-dialog
       v-model="providerModelsVisible"
-      title="同步 DeepSeek 官方模型"
+      :title="`同步 ${selectedProviderName()} 官方模型`"
       width="620px"
     >
       <el-alert
-        title="列表实时来自已配置的 DeepSeek Provider。勾选后会创建或启用对应的网关模型名。"
+        :title="`列表实时来自已配置的 ${selectedProviderName()} Provider。勾选后会创建或启用对应的网关模型名。`"
         type="info"
         :closable="false"
         show-icon

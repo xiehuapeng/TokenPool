@@ -49,9 +49,61 @@ async def seed_initial_data() -> None:
                 )
             )
 
+        glm = await session.scalar(
+            select(ProviderConfig).where(ProviderConfig.code == "glm")
+        )
+        if glm is None:
+            glm = ProviderConfig(
+                code="glm",
+                display_name="Zhipu GLM",
+                base_url=settings.glm_base_url,
+                enabled=bool(settings.glm_api_key.get_secret_value()),
+                timeout_seconds=300,
+            )
+            session.add(glm)
+            await session.flush()
+        else:
+            glm.display_name = "Zhipu GLM"
+            glm.base_url = settings.glm_base_url
+            glm.enabled = bool(settings.glm_api_key.get_secret_value())
+
+        for index, model_id in enumerate(
+            (
+                "glm-4.5",
+                "glm-4.5-air",
+                "glm-4.6",
+                "glm-4.7",
+                "glm-5",
+                "glm-5-turbo",
+                "glm-5.1",
+                "glm-5.2",
+            )
+        ):
+            existing_model = await session.scalar(
+                select(ModelConfig).where(ModelConfig.public_model == model_id)
+            )
+            if existing_model is None:
+                session.add(
+                    ModelConfig(
+                        public_model=model_id,
+                        provider_id=glm.id,
+                        upstream_model=model_id,
+                        display_name=model_id.upper(),
+                        enabled=True,
+                        default_allowed=True,
+                        capabilities={
+                            "chat": True,
+                            "stream": True,
+                            "tools": True,
+                            "json": True,
+                            "thinking": True,
+                        },
+                        sort_order=100 + index,
+                    )
+                )
+
         for code, name, public_model in (
             ("kimi", "Kimi", "kimi-k2"),
-            ("glm", "智谱 GLM", "glm-code"),
             ("qwen", "阿里云 Qwen", "qwen-coder"),
         ):
             provider = await session.scalar(

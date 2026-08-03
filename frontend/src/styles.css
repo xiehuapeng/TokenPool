@@ -98,6 +98,19 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .guide-steps { margin: 6px 0; padding-left: 24px; line-height: 2.2; color: #475467; }
 .model-pills { display: flex; flex-wrap: wrap; gap: 10px; min-height: 42px; align-items: center; }
 .model-select { width: 100%; margin-bottom: 14px; }
+.model-provider-groups { display: grid; gap: 12px; }
+.model-provider-group {
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+}
+.model-provider-name {
+  margin-bottom: 10px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
 .selected-model-code { margin-left: 12px; }
 .provider-model-list { min-height: 120px; margin-top: 18px; }
 .provider-model-item {

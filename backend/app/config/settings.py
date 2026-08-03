@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     admin_password: SecretStr = SecretStr("")
     deepseek_api_key: SecretStr = SecretStr("")
     deepseek_base_url: str = "https://api.deepseek.com"
+    glm_api_key: SecretStr = SecretStr("")
+    glm_base_url: str = "https://open.bigmodel.cn/api/coding/paas/v4"
     cors_origins: Annotated[list[str], NoDecode] = []
     auto_migrate: bool = True
 

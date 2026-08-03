@@ -1,5 +1,6 @@
 from app.providers.base import BaseProvider
 from app.providers.deepseek import DeepSeekProvider
+from app.providers.glm import GLMProvider
 from app.utils.errors import GatewayError
 
 
@@ -7,6 +8,7 @@ class ProviderRegistry:
     def __init__(self) -> None:
         self._providers: dict[str, BaseProvider] = {
             "deepseek": DeepSeekProvider(),
+            "glm": GLMProvider(),
         }
 
     def get(self, code: str) -> BaseProvider:
@@ -22,4 +24,3 @@ class ProviderRegistry:
 
 
 provider_registry = ProviderRegistry()
-
