@@ -168,6 +168,12 @@ async def list_available_models(
             "provider": provider.display_name,
             "status": "enabled" if model.enabled and provider.enabled else "planned",
             "capabilities": model.capabilities,
+            "official_available": (model.capabilities or {}).get(
+                "official_available"
+            ),
+            "official_synced_at": (model.capabilities or {}).get(
+                "official_synced_at"
+            ),
             "selected": model.id == user.preferred_model_id,
         }
         for model, provider in rows

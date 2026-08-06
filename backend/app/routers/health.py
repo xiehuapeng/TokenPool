@@ -29,6 +29,16 @@ async def health(session: DbSession) -> dict:
             and not settings.glm_api_key.get_secret_value()
         ):
             provider_states[provider.code] = "unconfigured"
+        elif (
+            provider.code == "kimi"
+            and not settings.kimi_api_key.get_secret_value()
+        ):
+            provider_states[provider.code] = "unconfigured"
+        elif (
+            provider.code == "qwen"
+            and not settings.qwen_api_key.get_secret_value()
+        ):
+            provider_states[provider.code] = "unconfigured"
         else:
             provider_states[provider.code] = "available"
     return {"status": "ok", "providers": provider_states}

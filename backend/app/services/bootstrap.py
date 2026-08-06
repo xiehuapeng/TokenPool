@@ -102,9 +102,21 @@ async def seed_initial_data() -> None:
                     )
                 )
 
-        for code, name, public_model in (
-            ("kimi", "Kimi", "kimi-k2"),
-            ("qwen", "阿里云 Qwen", "qwen-coder"),
+        for code, name, public_model, base_url, api_key in (
+            (
+                "kimi",
+                "Kimi",
+                "kimi-k2",
+                settings.kimi_base_url,
+                settings.kimi_api_key.get_secret_value(),
+            ),
+            (
+                "qwen",
+                "阿里云 Qwen",
+                "qwen-coder",
+                settings.qwen_base_url,
+                settings.qwen_api_key.get_secret_value(),
+            ),
         ):
             provider = await session.scalar(
                 select(ProviderConfig).where(ProviderConfig.code == code)
@@ -113,12 +125,16 @@ async def seed_initial_data() -> None:
                 provider = ProviderConfig(
                     code=code,
                     display_name=name,
-                    base_url="",
-                    enabled=False,
+                    base_url=base_url,
+                    enabled=bool(api_key),
                     timeout_seconds=300,
                 )
                 session.add(provider)
                 await session.flush()
+            else:
+                provider.display_name = name
+                provider.base_url = base_url
+                provider.enabled = bool(api_key)
             existing_model = await session.scalar(
                 select(ModelConfig).where(ModelConfig.public_model == public_model)
             )

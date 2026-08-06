@@ -19,6 +19,7 @@ from app.schemas.admin import (
 )
 from app.schemas.api_key import SecretReveal
 from app.providers.registry import provider_registry
+from app.services.model_sync import record_provider_model_discovery
 from app.utils.errors import GatewayError
 from app.utils.secret_store import decrypt_secret, encrypt_secret
 from app.utils.security import (
@@ -270,6 +271,12 @@ async def list_models(_admin: Admin, session: DbSession) -> list[dict]:
             "enabled": model.enabled,
             "default_allowed": model.default_allowed,
             "capabilities": model.capabilities,
+            "official_available": (model.capabilities or {}).get(
+                "official_available"
+            ),
+            "official_synced_at": (model.capabilities or {}).get(
+                "official_synced_at"
+            ),
         }
         for model, provider in rows
     ]
@@ -319,7 +326,7 @@ async def provider_available_models(
         )
     upstream_models = await _list_upstream_models(provider)
     configured = {
-        item.public_model: item
+        item.upstream_model: item
         for item in await session.scalars(
             select(ModelConfig).where(ModelConfig.provider_id == provider.id)
         )
@@ -366,8 +373,14 @@ async def sync_provider_models(
             code="provider_model_unavailable",
         )
 
+    await record_provider_model_discovery(
+        session,
+        provider,
+        upstream_models,
+    )
+
     existing = {
-        item.public_model: item
+        item.upstream_model: item
         for item in await session.scalars(
             select(ModelConfig).where(ModelConfig.provider_id == provider.id)
         )
@@ -376,30 +389,18 @@ async def sync_provider_models(
     for index, model_id in enumerate(requested_ids):
         model = existing.get(model_id)
         if model is None:
-            model = ModelConfig(
-                public_model=model_id,
-                provider_id=provider.id,
-                upstream_model=model_id,
-                display_name=_provider_model_display_name(
-                    provider.code, model_id
-                ),
-                enabled=body.enable,
-                default_allowed=body.default_allowed,
-                capabilities={
-                    "chat": True,
-                    "stream": True,
-                    "tools": True,
-                    "json": True,
-                    "thinking": True,
-                },
-                sort_order=-100 + index,
+            raise GatewayError(
+                f"模型同步状态异常: {model_id}",
+                status_code=500,
+                code="provider_model_sync_failed",
             )
-            session.add(model)
-        else:
-            model.upstream_model = model_id
-            model.enabled = body.enable
-            model.default_allowed = body.default_allowed
-            model.sort_order = -100 + index
+        model.upstream_model = model_id
+        model.display_name = _provider_model_display_name(
+            provider.code, model_id
+        )
+        model.enabled = body.enable
+        model.default_allowed = body.default_allowed
+        model.sort_order = -100 + index
         synced.append(model_id)
     await session.commit()
     return {"provider": provider.code, "synced": synced}

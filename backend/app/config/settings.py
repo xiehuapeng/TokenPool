@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     glm_api_key: SecretStr = SecretStr("")
     glm_base_url: str = "https://open.bigmodel.cn/api/coding/paas/v4"
+    kimi_api_key: SecretStr = SecretStr("")
+    kimi_base_url: str = "https://api.moonshot.cn/v1"
+    qwen_api_key: SecretStr = SecretStr("")
+    qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model_sync_enabled: bool = True
+    model_sync_interval_seconds: int = 21600
+    model_sync_initial_delay_seconds: int = 10
     cors_origins: Annotated[list[str], NoDecode] = []
     auto_migrate: bool = True
 
@@ -55,6 +62,20 @@ class Settings(BaseSettings):
             prefix, relative_path = value.split(marker, 1)
             absolute_path = (BACKEND_DIR / relative_path).resolve().as_posix()
             return f"{prefix}///{absolute_path}"
+        return value
+
+    @field_validator("model_sync_interval_seconds")
+    @classmethod
+    def validate_model_sync_interval(cls, value: int) -> int:
+        if value < 300:
+            raise ValueError("MODEL_SYNC_INTERVAL_SECONDS不能小于300秒")
+        return value
+
+    @field_validator("model_sync_initial_delay_seconds")
+    @classmethod
+    def validate_model_sync_initial_delay(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("MODEL_SYNC_INITIAL_DELAY_SECONDS不能小于0")
         return value
 
     @model_validator(mode="after")

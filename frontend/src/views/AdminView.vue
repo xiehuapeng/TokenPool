@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import "element-plus/es/components/message/style/css";
 import "element-plus/es/components/message-box/style/css";
@@ -22,6 +22,7 @@ const createInviteVisible = ref(false);
 const providerModelsVisible = ref(false);
 const providerModelsLoading = ref(false);
 const selectedProviderCode = ref("deepseek");
+const activeModelProvider = ref("");
 const availableProviderModels = ref<any[]>([]);
 const selectedProviderModels = ref<string[]>([]);
 const inviteSecretVisible = ref(false);
@@ -33,6 +34,35 @@ const inviteForm = reactive({
   code: "",
   max_uses: 20 as number | null,
   expires_at: "",
+});
+
+const modelGroups = computed(() => {
+  const providerOrder = new Map(
+    providers.value.map((provider: any, index: number) => [provider.code, index]),
+  );
+  const groups = new Map<
+    string,
+    { code: string; name: string; models: any[]; enabledCount: number }
+  >();
+
+  for (const model of models.value) {
+    const code = model.provider || "unknown";
+    const group = groups.get(code) || {
+      code,
+      name: model.provider_name || code,
+      models: [] as any[],
+      enabledCount: 0,
+    };
+    group.models.push(model);
+    if (model.enabled) group.enabledCount += 1;
+    groups.set(code, group);
+  }
+
+  return Array.from(groups.values()).sort((left, right) => {
+    const leftOrder = providerOrder.get(left.code) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = providerOrder.get(right.code) ?? Number.MAX_SAFE_INTEGER;
+    return leftOrder - rightOrder || left.name.localeCompare(right.name);
+  });
 });
 
 async function loadAll() {
@@ -51,6 +81,14 @@ async function loadAll() {
     keys.value = k.data;
     models.value = m.data;
     providers.value = p.data;
+    if (
+      !activeModelProvider.value ||
+      !models.value.some(
+        (model: any) => model.provider === activeModelProvider.value,
+      )
+    ) {
+      activeModelProvider.value = models.value[0]?.provider || "";
+    }
     stats.value = s.data;
     logs.value = l.data.items;
     totalLogs.value = l.data.total;
@@ -251,16 +289,6 @@ onMounted(loadAll);
       >
         设置邀请码
       </el-button>
-      <template v-if="activeTab === 'models'">
-        <el-button
-          v-for="provider in providers.filter((item) => item.enabled)"
-          :key="provider.code"
-          type="primary"
-          @click="openProviderModels(provider.code)"
-        >
-          同步 {{ provider.display_name }} 官方模型
-        </el-button>
-      </template>
     </div>
 
     <el-card shadow="never">
@@ -392,24 +420,81 @@ onMounted(loadAll);
             show-icon
             class="admin-alert"
           />
-          <el-table :data="models">
-            <el-table-column prop="public_model" label="公开模型名" min-width="180" />
-            <el-table-column prop="upstream_model" label="上游模型名" min-width="180" />
-            <el-table-column prop="provider_name" label="Provider" />
-            <el-table-column label="默认开放">
-              <template #default="{ row }">
-                {{ row.default_allowed ? "是" : "否" }}
+          <el-empty v-if="!modelGroups.length" description="暂无模型配置" />
+          <el-tabs v-else v-model="activeModelProvider" class="model-provider-tabs">
+            <el-tab-pane
+              v-for="group in modelGroups"
+              :key="group.code"
+              :name="group.code"
+            >
+              <template #label>
+                <span class="model-provider-tab-label">
+                  {{ group.name }}
+                  <el-tag size="small" effect="plain">{{ group.models.length }}</el-tag>
+                </span>
               </template>
-            </el-table-column>
-            <el-table-column label="启用">
-              <template #default="{ row }">
-                <el-switch
-                  v-model="row.enabled"
-                  @change="(value) => setModelEnabled(row, Boolean(value))"
+              <div class="model-provider-toolbar">
+                <div>
+                  <strong>{{ group.name }}</strong>
+                  <span>
+                    共 {{ group.models.length }} 个模型，已启用
+                    {{ group.enabledCount }} 个
+                  </span>
+                </div>
+                <el-button
+                  v-if="providers.find((item) => item.code === group.code)?.enabled"
+                  type="primary"
+                  @click="openProviderModels(group.code)"
+                >
+                  同步 {{ group.name }} 官方模型
+                </el-button>
+              </div>
+              <el-table :data="group.models">
+                <el-table-column
+                  prop="public_model"
+                  label="公开模型名"
+                  min-width="180"
                 />
-              </template>
-            </el-table-column>
-          </el-table>
+                <el-table-column
+                  prop="upstream_model"
+                  label="上游模型名"
+                  min-width="180"
+                />
+                <el-table-column label="官方同步" width="120">
+                  <template #default="{ row }">
+                    <el-tag
+                      v-if="row.official_available === true"
+                      type="success"
+                      effect="plain"
+                    >
+                      当前返回
+                    </el-tag>
+                    <el-tag
+                      v-else-if="row.official_available === false"
+                      type="warning"
+                      effect="plain"
+                    >
+                      当前未返回
+                    </el-tag>
+                    <el-tag v-else type="info" effect="plain">尚未同步</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="默认开放" width="100">
+                  <template #default="{ row }">
+                    {{ row.default_allowed ? "是" : "否" }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="启用" width="90">
+                  <template #default="{ row }">
+                    <el-switch
+                      v-model="row.enabled"
+                      @change="(value) => setModelEnabled(row, Boolean(value))"
+                    />
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-tab-pane>
+          </el-tabs>
         </el-tab-pane>
 
         <el-tab-pane label="Provider" name="providers">

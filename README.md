@@ -8,7 +8,8 @@
 - `POST /v1/chat/completions`，支持普通响应和 SSE
 - `GET /v1/models`
 - `GET /health`
-- DeepSeek、智谱 GLM Provider 与数据库模型路由
+- DeepSeek、智谱 GLM、Kimi、Qwen OpenAI Compatible Provider 与数据库模型路由
+- 已配置 Provider 每 6 小时自动调用官方 `/models` 同步模型元数据
 - 固定虚拟模型 `team-coding`，用户可在工作台选择实际调用模型
 - 账号密码登录、随机 API Key 生成与吊销
 - API Key 只在生成时完整显示一次，数据库仅保存摘要
@@ -53,6 +54,13 @@ ADMIN_PASSWORD=管理员初始密码
 DEEPSEEK_API_KEY=新生成的DeepSeek密钥
 GLM_API_KEY=智谱API密钥
 GLM_BASE_URL=https://open.bigmodel.cn/api/coding/paas/v4
+KIMI_API_KEY=Moonshot API密钥
+KIMI_BASE_URL=https://api.moonshot.cn/v1
+QWEN_API_KEY=阿里云百炼API密钥
+QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+MODEL_SYNC_ENABLED=true
+MODEL_SYNC_INTERVAL_SECONDS=21600
+MODEL_SYNC_INITIAL_DELAY_SECONDS=10
 ```
 
 已经暴露或提交过的 Provider Key 不应继续使用。
@@ -163,14 +171,15 @@ DATABASE_URL=postgresql+asyncpg://gateway_user:password@postgres:5432/ai_gateway
 - 日志过滤器会兜底脱敏 Bearer、`sk-` Key、智谱 Key 和常见 secret 字段。
 - 管理接口和用户接口使用登录 JWT；`/v1/*` 使用团队 API Key。
 - `/health` 当前报告配置可用性，不会在每次探测时产生付费模型请求。
+- 自动模型同步只发送 `GET /models`，不发送 Prompt，不产生模型推理 Token；
+  新发现模型默认关闭，管理员确认后才能开放给团队。
 - 用户可以自助注册普通账号；注册接口固定创建非管理员用户，管理员可在后台
   禁用、启用和查看用户。
 
 ## 后续演进
 
-数据库结构和 Provider 注册机制已经预留 Kimi、Qwen、用户模型权限、
-多上游账号、额度和限流。生产部署阶段将补充 PostgreSQL 在线验证、
-Docker Compose、Nginx SSE 配置和进程管理。
+数据库结构已经预留用户模型权限、多上游账号、额度和限流。后续可继续补充
+多 API Key 轮询、Redis 限流和 Provider 自动故障切换。
 
 ## GitHub Pages
 

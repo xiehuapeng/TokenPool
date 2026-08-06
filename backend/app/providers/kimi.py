@@ -1,12 +1,18 @@
-from app.providers.base import BaseProvider
+import httpx
+
+from app.config.settings import get_settings
+from app.providers.openai_compatible import OpenAICompatibleProvider
 
 
-class KimiProvider(BaseProvider):
+class KimiProvider(OpenAICompatibleProvider):
     code = "kimi"
+    provider_name = "Kimi"
 
-    async def chat_completion(self, payload, *, upstream_model, timeout_seconds):
-        raise NotImplementedError
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        super().__init__(transport=transport)
 
-    async def open_chat_stream(self, payload, *, upstream_model, timeout_seconds):
-        raise NotImplementedError
+    def api_key(self) -> str:
+        return get_settings().kimi_api_key.get_secret_value()
 
+    def base_url(self) -> str:
+        return get_settings().kimi_base_url

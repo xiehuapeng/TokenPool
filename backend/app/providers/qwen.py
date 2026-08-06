@@ -1,12 +1,18 @@
-from app.providers.base import BaseProvider
+import httpx
+
+from app.config.settings import get_settings
+from app.providers.openai_compatible import OpenAICompatibleProvider
 
 
-class QwenProvider(BaseProvider):
+class QwenProvider(OpenAICompatibleProvider):
     code = "qwen"
+    provider_name = "Qwen"
 
-    async def chat_completion(self, payload, *, upstream_model, timeout_seconds):
-        raise NotImplementedError
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        super().__init__(transport=transport)
 
-    async def open_chat_stream(self, payload, *, upstream_model, timeout_seconds):
-        raise NotImplementedError
+    def api_key(self) -> str:
+        return get_settings().qwen_api_key.get_secret_value()
 
+    def base_url(self) -> str:
+        return get_settings().qwen_base_url

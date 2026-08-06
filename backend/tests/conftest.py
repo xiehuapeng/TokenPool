@@ -24,6 +24,9 @@ os.environ.update(
         "DEEPSEEK_API_KEY": "test-upstream-key",
         "GLM_API_KEY": "test-zhipu-key",
         "GLM_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+        "KIMI_API_KEY": "test-kimi-key",
+        "QWEN_API_KEY": "test-qwen-key",
+        "MODEL_SYNC_ENABLED": "false",
     }
 )
 

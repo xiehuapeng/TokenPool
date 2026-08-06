@@ -1,6 +1,8 @@
 from app.providers.base import BaseProvider
 from app.providers.deepseek import DeepSeekProvider
 from app.providers.glm import GLMProvider
+from app.providers.kimi import KimiProvider
+from app.providers.qwen import QwenProvider
 from app.utils.errors import GatewayError
 
 
@@ -9,6 +11,8 @@ class ProviderRegistry:
         self._providers: dict[str, BaseProvider] = {
             "deepseek": DeepSeekProvider(),
             "glm": GLMProvider(),
+            "kimi": KimiProvider(),
+            "qwen": QwenProvider(),
         }
 
     def get(self, code: str) -> BaseProvider:
