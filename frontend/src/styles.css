@@ -112,7 +112,13 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   font-weight: 600;
 }
 .selected-model-code { margin-left: 12px; }
-.provider-model-list { min-height: 120px; margin-top: 18px; }
+.provider-model-list {
+  min-height: 120px;
+  max-height: min(52vh, 560px);
+  margin-top: 18px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
 .provider-model-item {
   display: flex;
   align-items: center;
@@ -141,6 +147,25 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 }
 .admin-alert { margin-bottom: 18px; }
 .model-provider-tabs > .el-tabs__header { margin-bottom: 18px; }
+.model-category-tabs { margin-bottom: 12px; }
+.model-category-tabs > .el-tabs__header { margin-bottom: 0; }
+.model-category-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.provider-sync-category-tabs { margin-top: 2px; }
+.provider-model-category-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 4px 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  background: var(--el-fill-color-extra-light);
+}
 .model-provider-tab-label {
   display: inline-flex;
   align-items: center;
@@ -202,6 +227,12 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
     flex-direction: column;
     gap: 6px;
     padding: 10px 4px;
+  }
+  .provider-model-category-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0;
+    padding: 8px 4px;
   }
   .model-provider-toolbar,
   .model-provider-toolbar > div {

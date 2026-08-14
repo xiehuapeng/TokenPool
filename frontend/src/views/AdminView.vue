@@ -7,6 +7,7 @@ import { adminApi } from "@/api";
 import { errorMessage } from "@/api/http";
 import { formatBeijingTime } from "@/utils/time";
 import { copyText } from "@/utils/clipboard";
+import { categorizeProviderModels } from "@/utils/modelCategories";
 
 const activeTab = ref("users");
 const users = ref<any[]>([]);
@@ -23,8 +24,10 @@ const providerModelsVisible = ref(false);
 const providerModelsLoading = ref(false);
 const selectedProviderCode = ref("deepseek");
 const activeModelProvider = ref("");
+const activeModelCategories = reactive<Record<string, string>>({});
 const availableProviderModels = ref<any[]>([]);
 const selectedProviderModels = ref<string[]>([]);
+const activeProviderModelCategory = ref("");
 const inviteSecretVisible = ref(false);
 const inviteSecret = ref("");
 const inviteSecretLabel = ref("");
@@ -65,6 +68,47 @@ const modelGroups = computed(() => {
   });
 });
 
+const availableProviderModelCategories = computed(() =>
+  categorizeProviderModels(
+    selectedProviderCode.value,
+    availableProviderModels.value,
+  ),
+);
+
+const visibleAvailableProviderModels = computed(() => {
+  const category = availableProviderModelCategories.value.find(
+    (item) => item.key === activeProviderModelCategory.value,
+  );
+  return category?.models || availableProviderModels.value;
+});
+
+function groupModelCategories(group: { code: string; models: any[] }) {
+  return categorizeProviderModels(group.code, group.models);
+}
+
+function visibleGroupModels(group: { code: string; models: any[] }) {
+  if (group.code !== "qwen") return group.models;
+  const categories = groupModelCategories(group);
+  return (
+    categories.find(
+      (category) => category.key === activeModelCategories[group.code],
+    )?.models || categories[0]?.models || []
+  );
+}
+
+function initializeModelCategories() {
+  for (const group of modelGroups.value) {
+    const categories = groupModelCategories(group);
+    if (
+      !categories.some(
+        (category) => category.key === activeModelCategories[group.code],
+      )
+    ) {
+      activeModelCategories[group.code] = categories[0]?.key || "";
+    }
+  }
+}
+
 async function loadAll() {
   try {
     const [u, i, k, m, p, s, l] = await Promise.all([
@@ -89,6 +133,7 @@ async function loadAll() {
     ) {
       activeModelProvider.value = models.value[0]?.provider || "";
     }
+    initializeModelCategories();
     stats.value = s.data;
     logs.value = l.data.items;
     totalLogs.value = l.data.total;
@@ -234,13 +279,40 @@ async function openProviderModels(providerCode: string) {
     const response = await adminApi.providerModels(providerCode);
     availableProviderModels.value = response.data.models;
     selectedProviderModels.value = response.data.models
-      .filter((item: any) => item.enabled || !item.configured)
+      .filter((item: any) => item.enabled)
       .map((item: any) => item.id);
+    activeProviderModelCategory.value =
+      availableProviderModelCategories.value[0]?.key || "";
   } catch (error) {
     ElMessage.error(errorMessage(error));
   } finally {
     providerModelsLoading.value = false;
   }
+}
+
+function visibleCategoryFullySelected() {
+  return (
+    visibleAvailableProviderModels.value.length > 0 &&
+    visibleAvailableProviderModels.value.every((model: any) =>
+      selectedProviderModels.value.includes(model.id),
+    )
+  );
+}
+
+function toggleVisibleCategory() {
+  const visibleIds = visibleAvailableProviderModels.value.map(
+    (model: any) => model.id,
+  );
+  if (visibleCategoryFullySelected()) {
+    const visibleSet = new Set(visibleIds);
+    selectedProviderModels.value = selectedProviderModels.value.filter(
+      (modelId) => !visibleSet.has(modelId),
+    );
+    return;
+  }
+  selectedProviderModels.value = Array.from(
+    new Set([...selectedProviderModels.value, ...visibleIds]),
+  );
 }
 
 async function syncProviderModels() {
@@ -449,7 +521,27 @@ onMounted(loadAll);
                   同步 {{ group.name }} 官方模型
                 </el-button>
               </div>
-              <el-table :data="group.models">
+              <el-tabs
+                v-if="group.code === 'qwen'"
+                v-model="activeModelCategories[group.code]"
+                class="model-category-tabs"
+              >
+                <el-tab-pane
+                  v-for="category in groupModelCategories(group)"
+                  :key="category.key"
+                  :name="category.key"
+                >
+                  <template #label>
+                    <span class="model-category-tab-label">
+                      {{ category.label }}
+                      <el-tag size="small" effect="plain">
+                        {{ category.models.length }}
+                      </el-tag>
+                    </span>
+                  </template>
+                </el-tab-pane>
+              </el-tabs>
+              <el-table :data="visibleGroupModels(group)">
                 <el-table-column
                   prop="public_model"
                   label="公开模型名"
@@ -653,9 +745,39 @@ onMounted(loadAll);
           v-if="!providerModelsLoading && !availableProviderModels.length"
           description="未获取到可用模型"
         />
-        <el-checkbox-group v-else v-model="selectedProviderModels">
+        <template v-else>
+          <el-tabs
+            v-if="selectedProviderCode === 'qwen'"
+            v-model="activeProviderModelCategory"
+            class="model-category-tabs provider-sync-category-tabs"
+          >
+            <el-tab-pane
+              v-for="category in availableProviderModelCategories"
+              :key="category.key"
+              :name="category.key"
+            >
+              <template #label>
+                <span class="model-category-tab-label">
+                  {{ category.label }}
+                  <el-tag size="small" effect="plain">
+                    {{ category.models.length }}
+                  </el-tag>
+                </span>
+              </template>
+            </el-tab-pane>
+          </el-tabs>
+          <div class="provider-model-category-toolbar">
+            <span>
+              当前分类 {{ visibleAvailableProviderModels.length }} 个模型，已选
+              {{ selectedProviderModels.length }} 个
+            </span>
+            <el-button link type="primary" @click="toggleVisibleCategory">
+              {{ visibleCategoryFullySelected() ? "取消本类全选" : "选择本类全部" }}
+            </el-button>
+          </div>
+        <el-checkbox-group v-model="selectedProviderModels">
           <div
-            v-for="model in availableProviderModels"
+            v-for="model in visibleAvailableProviderModels"
             :key="model.id"
             class="provider-model-item"
           >
@@ -672,6 +794,7 @@ onMounted(loadAll);
             </div>
           </div>
         </el-checkbox-group>
+        </template>
       </div>
       <template #footer>
         <el-button @click="providerModelsVisible = false">取消</el-button>

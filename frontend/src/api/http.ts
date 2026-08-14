@@ -5,6 +5,19 @@ export const http = axios.create({
   timeout: 30000,
 });
 
+let redirectingToLogin = false;
+
+function redirectToLogin() {
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("user");
+  if (redirectingToLogin || window.location.hash === "#/login") return;
+
+  redirectingToLogin = true;
+  const loginUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+  loginUrl.hash = "/login";
+  window.location.replace(loginUrl.toString());
+}
+
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem("access_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -15,9 +28,7 @@ http.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401 && !error.config?.url?.includes("/login")) {
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("user");
-      if (window.location.pathname !== "/login") window.location.href = "/login";
+      redirectToLogin();
     }
     return Promise.reject(error);
   },
@@ -33,4 +44,3 @@ export function errorMessage(error: unknown): string {
   }
   return error instanceof Error ? error.message : "请求失败";
 }
-

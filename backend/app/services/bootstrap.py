@@ -113,7 +113,7 @@ async def seed_initial_data() -> None:
             (
                 "qwen",
                 "阿里云 Qwen",
-                "qwen-coder",
+                "qwen3.7-plus",
                 settings.qwen_base_url,
                 settings.qwen_api_key.get_secret_value(),
             ),
@@ -135,21 +135,49 @@ async def seed_initial_data() -> None:
                 provider.display_name = name
                 provider.base_url = base_url
                 provider.enabled = bool(api_key)
-            existing_model = await session.scalar(
-                select(ModelConfig).where(ModelConfig.public_model == public_model)
-            )
-            if existing_model is None:
-                session.add(
-                    ModelConfig(
-                        public_model=public_model,
-                        provider_id=provider.id,
-                        upstream_model=public_model,
-                        display_name=public_model,
-                        enabled=False,
-                        default_allowed=False,
-                        capabilities={"chat": True, "stream": True},
+            seed_models = (
+                ("qwen3.8-max", "Qwen 3.8 Max"),
+                ("qwen3.7-plus", "Qwen 3.7 Plus"),
+                ("qwen3.7-max", "Qwen 3.7 Max"),
+            ) if code == "qwen" else ((public_model, public_model),)
+            for index, (model_id, display_name) in enumerate(seed_models):
+                existing_model = await session.scalar(
+                    select(ModelConfig).where(
+                        ModelConfig.public_model == model_id
                     )
                 )
+                enabled_by_default = code == "qwen" and bool(api_key)
+                capabilities = {
+                    "chat": True,
+                    "stream": True,
+                    "tools": code == "qwen",
+                    "json": code == "qwen",
+                    "thinking": code == "qwen",
+                }
+                if existing_model is None:
+                    session.add(
+                        ModelConfig(
+                            public_model=model_id,
+                            provider_id=provider.id,
+                            upstream_model=model_id,
+                            display_name=display_name,
+                            enabled=enabled_by_default,
+                            default_allowed=enabled_by_default,
+                            capabilities=capabilities,
+                            sort_order=200 + index,
+                        )
+                    )
+                elif code == "qwen":
+                    existing_model.provider_id = provider.id
+                    existing_model.upstream_model = model_id
+                    existing_model.display_name = display_name
+                    existing_model.enabled = enabled_by_default
+                    existing_model.default_allowed = enabled_by_default
+                    existing_model.capabilities = {
+                        **(existing_model.capabilities or {}),
+                        **capabilities,
+                    }
+                    existing_model.sort_order = 200 + index
 
         admin_password = settings.admin_password.get_secret_value()
         if admin_password:
