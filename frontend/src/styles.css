@@ -97,6 +97,33 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .steps { margin: 0; padding-left: 23px; line-height: 2.5; color: #475467; }
 .guide-steps { margin: 6px 0; padding-left: 24px; line-height: 2.2; color: #475467; }
 .model-pills { display: flex; flex-wrap: wrap; gap: 10px; min-height: 42px; align-items: center; }
+.model-select-popper .el-select-dropdown__item {
+  height: auto;
+  min-height: 48px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  line-height: 1.35;
+}
+.model-select-option-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+.model-select-option-name {
+  overflow: hidden;
+  color: var(--el-text-color-primary);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-select-option-description {
+  overflow: hidden;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .model-select { width: 100%; margin-bottom: 14px; }
 .model-provider-groups { display: grid; gap: 12px; }
 .model-provider-group {

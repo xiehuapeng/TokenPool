@@ -28,6 +28,16 @@ async def test_deepseek_provider_lists_upstream_models():
                         "object": "model",
                         "owned_by": "deepseek",
                     },
+                    {
+                        "id": "deepseek-chat",
+                        "object": "model",
+                        "owned_by": "deepseek",
+                    },
+                    {
+                        "id": "deepseek-reasoner",
+                        "object": "model",
+                        "owned_by": "deepseek",
+                    },
                 ],
             },
         )

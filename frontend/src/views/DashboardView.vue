@@ -20,6 +20,13 @@ const selectedModel = ref("");
 const savedSelectedModel = ref("");
 const gatewayModel = ref("team-coding");
 const savingModel = ref(false);
+const modelUsageDescriptions: Record<string, string> = {
+  "deepseek-v4-pro": "适合复杂任务与深度推理",
+  "deepseek-v4-flash": "适合日常问答与简单任务",
+  "qwen3.8-max": "适合复杂任务与深度分析",
+  "qwen3.7-max": "适合较复杂的综合任务",
+  "qwen3.7-plus": "适合日常轻量任务",
+};
 const activeModels = computed(() =>
   models.value.filter((item) => item.status === "enabled"),
 );
@@ -36,9 +43,9 @@ const modelGroups = computed(() => {
     models: providerModels,
   }));
 });
-const isLegacyModel = computed(() =>
-  ["deepseek-chat", "deepseek-reasoner"].includes(selectedModel.value),
-);
+function modelUsageDescription(modelId: string) {
+  return modelUsageDescriptions[modelId] || "";
+}
 const curlExample = computed(() => `curl ${baseUrl.value}/chat/completions \\
   -H "Authorization: Bearer ${generatedKey.value || "sk-team-your-key"}" \\
   -H "Content-Type: application/json" \\
@@ -173,6 +180,7 @@ onMounted(load);
           <el-select
             v-model="selectedModel"
             class="model-select"
+            popper-class="model-select-popper"
             placeholder="选择实际调用模型"
             aria-label="选择实际调用模型"
             :disabled="savingModel"
@@ -188,7 +196,19 @@ onMounted(load);
                 :key="model.id"
                 :label="model.display_name || model.id"
                 :value="model.id"
-              />
+              >
+                <div class="model-select-option-content">
+                  <span class="model-select-option-name">
+                    {{ model.display_name || model.id }}
+                  </span>
+                  <span
+                    v-if="modelUsageDescription(model.id)"
+                    class="model-select-option-description"
+                  >
+                    {{ modelUsageDescription(model.id) }}
+                  </span>
+                </div>
+              </el-option>
             </el-option-group>
           </el-select>
           <div class="model-provider-groups">
@@ -219,14 +239,6 @@ onMounted(load);
             Trae 等工具始终填写 <code>{{ gatewayModel }}</code>。修改这里后，
             下一次请求会自动路由到所选真实模型。
           </p>
-          <el-alert
-            v-if="isLegacyModel"
-            title="这是 DeepSeek 兼容旧别名，建议将 Coding 工具模型改为 deepseek-v4-flash 或 deepseek-v4-pro。"
-            type="warning"
-            :closable="false"
-            show-icon
-            class="compact"
-          />
         </el-card>
       </el-col>
     </el-row>

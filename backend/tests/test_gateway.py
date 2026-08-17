@@ -210,13 +210,13 @@ async def test_openai_compatible_non_stream_and_stream(client):
         assert preference.status_code == 200
         assert preference.json() == {
             "gateway_model": "team-coding",
-            "selected_model": "deepseek-chat",
+            "selected_model": "deepseek-v4-flash",
             "selection_source": "default",
         }
         updated_preference = await client.put(
             "/api/me/model-preference",
             headers=user_headers,
-            json={"model": "deepseek-chat"},
+            json={"model": "deepseek-v4-flash"},
         )
         assert updated_preference.status_code == 200
         assert updated_preference.json()["selection_source"] == "user"
@@ -233,7 +233,7 @@ async def test_openai_compatible_non_stream_and_stream(client):
         assert response.headers["x-request-id"].startswith("req_")
         assert response.json()["model"] == "team-coding"
         assert response.json()["usage"]["total_tokens"] == 6
-        assert fake_provider.upstream_models[-1] == "deepseek-chat"
+        assert fake_provider.upstream_models[-1] == "deepseek-v4-flash"
 
         async with client.stream(
             "POST",
@@ -250,7 +250,7 @@ async def test_openai_compatible_non_stream_and_stream(client):
         assert '"content": "你好"' in text
         assert '"model": "team-coding"' in text
         assert "data: [DONE]" in text
-        assert fake_provider.upstream_models[-1] == "deepseek-chat"
+        assert fake_provider.upstream_models[-1] == "deepseek-v4-flash"
 
         usage = await client.get("/api/me/usage/summary", headers=user_headers)
         assert usage.status_code == 200
@@ -263,17 +263,17 @@ async def test_openai_compatible_non_stream_and_stream(client):
         assert admin_logs.status_code == 200
         assert admin_logs.json()["items"][0]["request_time"].endswith("+08:00")
         assert admin_logs.json()["items"][0]["requested_model"] == "team-coding"
-        assert admin_logs.json()["items"][0]["model"] == "deepseek-chat"
+        assert admin_logs.json()["items"][0]["model"] == "deepseek-v4-flash"
 
         explicit_model = await client.post(
             "/v1/chat/completions",
             headers=api_headers,
             json={
-                "model": "deepseek-chat",
+                "model": "deepseek-v4-flash",
                 "messages": [{"role": "user", "content": "compatibility"}],
             },
         )
         assert explicit_model.status_code == 200
-        assert explicit_model.json()["model"] == "deepseek-chat"
+        assert explicit_model.json()["model"] == "deepseek-v4-flash"
     finally:
         provider_registry._providers["deepseek"] = original_provider

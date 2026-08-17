@@ -71,7 +71,7 @@ async def test_models_are_filtered_per_user_permission(client):
         headers={
             "Authorization": f"Bearer {await login(client, 'denied-user', 'secure-password1')}"
         },
-        json={"model": "deepseek-chat"},
+        json={"model": "deepseek-v4-flash"},
     )
     assert denied_preference.status_code == 403
     assert denied_preference.json()["error"]["code"] == "model_permission_denied"
@@ -80,7 +80,7 @@ async def test_models_are_filtered_per_user_permission(client):
         "/v1/chat/completions",
         headers={"Authorization": f"Bearer {denied_key}"},
         json={
-            "model": "deepseek-chat",
+            "model": "deepseek-v4-flash",
             "messages": [{"role": "user", "content": "should not be sent"}],
         },
     )

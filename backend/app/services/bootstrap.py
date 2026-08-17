@@ -1,8 +1,8 @@
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from app.config.settings import get_settings
 from app.database.session import SessionLocal
-from app.models import ModelConfig, ProviderConfig, User
+from app.models import ModelConfig, ProviderConfig, User, UserModelPermission
 from app.utils.security import hash_password
 
 
@@ -28,25 +28,67 @@ async def seed_initial_data() -> None:
             deepseek.base_url = settings.deepseek_base_url
             deepseek.enabled = bool(settings.deepseek_api_key.get_secret_value())
 
-        model = await session.scalar(
-            select(ModelConfig).where(ModelConfig.public_model == "deepseek-chat")
-        )
-        if model is None:
-            session.add(
-                ModelConfig(
-                    public_model="deepseek-chat",
-                    provider_id=deepseek.id,
-                    upstream_model="deepseek-chat",
-                    display_name="DeepSeek Chat",
-                    enabled=True,
-                    default_allowed=True,
-                    capabilities={
-                        "chat": True,
-                        "stream": True,
-                        "tools": True,
-                        "json": True,
-                    },
+        for index, (model_id, display_name) in enumerate(
+            (
+                ("deepseek-v4-flash", "DeepSeek V4 Flash"),
+                ("deepseek-v4-pro", "DeepSeek V4 Pro"),
+            )
+        ):
+            model = await session.scalar(
+                select(ModelConfig).where(ModelConfig.public_model == model_id)
+            )
+            if model is None:
+                session.add(
+                    ModelConfig(
+                        public_model=model_id,
+                        provider_id=deepseek.id,
+                        upstream_model=model_id,
+                        display_name=display_name,
+                        enabled=deepseek.enabled,
+                        default_allowed=deepseek.enabled,
+                        capabilities={
+                            "chat": True,
+                            "stream": True,
+                            "tools": True,
+                            "json": True,
+                            "thinking": True,
+                        },
+                        sort_order=index,
+                    )
                 )
+        await session.flush()
+
+        # DeepSeek于2026-07-24停止旧模型名。清理历史配置，避免旧数据库
+        # 在升级后继续向用户暴露或路由到已退役的上游模型。
+        retired_model_ids = list(
+            await session.scalars(
+                select(ModelConfig.id).where(
+                    ModelConfig.public_model.in_(
+                        ("deepseek-chat", "deepseek-reasoner")
+                    )
+                )
+            )
+        )
+        if retired_model_ids:
+            replacement = await session.scalar(
+                select(ModelConfig).where(
+                    ModelConfig.public_model == "deepseek-v4-flash"
+                )
+            )
+            await session.execute(
+                update(User)
+                .where(User.preferred_model_id.in_(retired_model_ids))
+                .values(
+                    preferred_model_id=(replacement.id if replacement else None)
+                )
+            )
+            await session.execute(
+                delete(UserModelPermission).where(
+                    UserModelPermission.model_config_id.in_(retired_model_ids)
+                )
+            )
+            await session.execute(
+                delete(ModelConfig).where(ModelConfig.id.in_(retired_model_ids))
             )
 
         glm = await session.scalar(

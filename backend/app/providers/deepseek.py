@@ -14,6 +14,9 @@ from app.providers.base import (
 from app.utils.errors import GatewayError
 
 
+RETIRED_MODEL_IDS = frozenset(("deepseek-chat", "deepseek-reasoner"))
+
+
 def _upstream_error(response: httpx.Response, body: bytes) -> GatewayError:
     message = "Upstream provider request failed"
     try:
@@ -128,7 +131,11 @@ class DeepSeekProvider(BaseProvider):
             return [
                 ProviderModel(id=item["id"], owned_by=item.get("owned_by"))
                 for item in data
-                if isinstance(item, dict) and isinstance(item.get("id"), str)
+                if (
+                    isinstance(item, dict)
+                    and isinstance(item.get("id"), str)
+                    and item["id"] not in RETIRED_MODEL_IDS
+                )
             ]
         except (AttributeError, TypeError, json.JSONDecodeError) as exc:
             raise GatewayError(
