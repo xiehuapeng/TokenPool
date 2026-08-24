@@ -16,7 +16,12 @@ from app.schemas.openai import (
 from app.services.auth_service import ApiPrincipal
 from app.services.model_router import (
     GATEWAY_MODEL_ID,
+    ensure_reasoning_content,
+    find_vision_fallback,
     list_permitted_models,
+    model_requires_reasoning_content,
+    model_supports_vision,
+    payload_contains_images,
     resolve_requested_model,
 )
 from app.services.usage_service import (
@@ -52,9 +57,27 @@ async def chat_completions(
         session,
         user_id=principal.user.id,
         requested_model=body.model,
+        key_preferred_model_id=principal.api_key.preferred_model_id,
     )
     request_id = f"req_{uuid.uuid4().hex}"
     payload = body.model_dump(exclude_none=True)
+    if payload_contains_images(payload) and not model_supports_vision(route.model):
+        fallback = await find_vision_fallback(
+            session,
+            user_id=principal.user.id,
+            exclude_model_id=route.model.id,
+        )
+        if fallback is None:
+            raise GatewayError(
+                "当前请求包含图片，但目标模型不支持视觉理解，"
+                "请在工作台切换到支持视觉的模型或联系管理员启用",
+                status_code=400,
+                code="vision_not_supported",
+                param="model",
+            )
+        route = fallback
+    if model_requires_reasoning_content(route.model):
+        payload = ensure_reasoning_content(payload)
     started = await create_usage_log(
         request_id=request_id,
         user_id=principal.user.id,

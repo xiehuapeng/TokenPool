@@ -11,6 +11,60 @@ from app.utils.errors import GatewayError
 
 GATEWAY_MODEL_ID = "team-coding"
 
+_THINKING_NAME_HINTS = ("reasoner", "thinking", "think", "-r1")
+
+
+def model_requires_reasoning_content(model: ModelConfig) -> bool:
+    capabilities = model.capabilities or {}
+    thinking = capabilities.get("thinking")
+    if thinking is not None:
+        return bool(thinking)
+    name = (model.upstream_model or "").lower()
+    return any(hint in name for hint in _THINKING_NAME_HINTS)
+
+
+_IMAGE_PART_TYPES = ("image_url", "image")
+
+
+def payload_contains_images(payload: dict) -> bool:
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return False
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if isinstance(content, list) and any(
+            isinstance(part, dict) and part.get("type") in _IMAGE_PART_TYPES
+            for part in content
+        ):
+            return True
+    return False
+
+
+def model_supports_vision(model: ModelConfig) -> bool:
+    return bool((model.capabilities or {}).get("vision"))
+
+
+def ensure_reasoning_content(payload: dict) -> dict:
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return payload
+    patched = False
+    new_messages = []
+    for message in messages:
+        if (
+            isinstance(message, dict)
+            and message.get("role") == "assistant"
+            and "reasoning_content" not in message
+        ):
+            message = {**message, "reasoning_content": ""}
+            patched = True
+        new_messages.append(message)
+    if not patched:
+        return payload
+    return {**payload, "messages": new_messages}
+
 
 @dataclass(slots=True)
 class ModelRoute:
@@ -67,7 +121,11 @@ async def resolve_model(
 
 
 async def resolve_requested_model(
-    session: AsyncSession, *, user_id: int, requested_model: str
+    session: AsyncSession,
+    *,
+    user_id: int,
+    requested_model: str,
+    key_preferred_model_id: int | None = None,
 ) -> ModelRoute:
     if requested_model != GATEWAY_MODEL_ID:
         return await resolve_model(
@@ -75,6 +133,15 @@ async def resolve_requested_model(
             user_id=user_id,
             public_model=requested_model,
         )
+
+    if key_preferred_model_id is not None:
+        key_model = await session.get(ModelConfig, key_preferred_model_id)
+        if key_model is not None:
+            return await resolve_model(
+                session,
+                user_id=user_id,
+                public_model=key_model.public_model,
+            )
 
     user = await session.get(User, user_id)
     if user is None:
@@ -140,3 +207,17 @@ async def list_permitted_models(
             else explicit_allowed
         )
     ]
+
+
+async def find_vision_fallback(
+    session: AsyncSession, *, user_id: int, exclude_model_id: int
+) -> ModelRoute | None:
+    permitted = await list_permitted_models(session, user_id=user_id)
+    for model in permitted:
+        if model.id != exclude_model_id and model_supports_vision(model):
+            return await resolve_model(
+                session,
+                user_id=user_id,
+                public_model=model.public_model,
+            )
+    return None

@@ -1,7 +1,10 @@
 from typing import AsyncIterator
 
 import pytest
+from sqlalchemy import select
 
+from app.database.session import SessionLocal
+from app.models import ModelConfig, ProviderConfig
 from app.providers.base import (
     BaseProvider,
     ProviderResult,
@@ -9,6 +12,10 @@ from app.providers.base import (
     StreamEvent,
 )
 from app.providers.registry import provider_registry
+from app.services.model_router import (
+    ensure_reasoning_content,
+    model_requires_reasoning_content,
+)
 
 
 class FakeStream(ProviderStream):
@@ -48,11 +55,13 @@ class FakeProvider(BaseProvider):
 
     def __init__(self) -> None:
         self.upstream_models: list[str] = []
+        self.payloads: list[dict] = []
 
     async def chat_completion(
         self, payload, *, upstream_model, timeout_seconds
     ) -> ProviderResult:
         self.upstream_models.append(upstream_model)
+        self.payloads.append(payload)
         return ProviderResult(
             data={
                 "id": "chatcmpl-test",
@@ -79,6 +88,7 @@ class FakeProvider(BaseProvider):
         self, payload, *, upstream_model, timeout_seconds
     ) -> ProviderStream:
         self.upstream_models.append(upstream_model)
+        self.payloads.append(payload)
         return FakeStream()
 
 
@@ -338,5 +348,166 @@ async def test_openai_compatible_non_stream_and_stream(client):
         )
         assert explicit_model.status_code == 200
         assert explicit_model.json()["model"] == "deepseek-v4-flash"
+    finally:
+        provider_registry._providers["deepseek"] = original_provider
+
+
+def test_reasoning_content_helpers():
+    thinking = ModelConfig(
+        public_model="t1",
+        provider_id=1,
+        upstream_model="deepseek-v3.2-thinking",
+        display_name="t1",
+    )
+    assert model_requires_reasoning_content(thinking) is True
+
+    reasoner = ModelConfig(
+        public_model="t2",
+        provider_id=1,
+        upstream_model="deepseek-reasoner",
+        display_name="t2",
+    )
+    assert model_requires_reasoning_content(reasoner) is True
+
+    plain = ModelConfig(
+        public_model="t3",
+        provider_id=1,
+        upstream_model="deepseek-v4-flash",
+        display_name="t3",
+    )
+    assert model_requires_reasoning_content(plain) is False
+
+    forced = ModelConfig(
+        public_model="t4",
+        provider_id=1,
+        upstream_model="deepseek-v4-flash",
+        display_name="t4",
+        capabilities={"thinking": True},
+    )
+    assert model_requires_reasoning_content(forced) is True
+
+    disabled = ModelConfig(
+        public_model="t5",
+        provider_id=1,
+        upstream_model="deepseek-reasoner",
+        display_name="t5",
+        capabilities={"thinking": False},
+    )
+    assert model_requires_reasoning_content(disabled) is False
+
+    payload = {
+        "messages": [
+            {"role": "user", "content": "a"},
+            {"role": "assistant", "content": "b"},
+            {"role": "assistant", "content": "c", "reasoning_content": "keep"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": "call_1"}],
+            },
+            {"role": "tool", "content": "result"},
+        ]
+    }
+    patched = ensure_reasoning_content(payload)
+    assert "reasoning_content" not in patched["messages"][0]
+    assert patched["messages"][1]["reasoning_content"] == ""
+    assert patched["messages"][2]["reasoning_content"] == "keep"
+    assert patched["messages"][3]["reasoning_content"] == ""
+    assert "reasoning_content" not in patched["messages"][4]
+    assert "reasoning_content" not in payload["messages"][1]
+
+    untouched = {"messages": [{"role": "user", "content": "a"}]}
+    assert ensure_reasoning_content(untouched) is untouched
+
+
+@pytest.mark.asyncio
+async def test_thinking_model_patches_reasoning_content(client):
+    original_provider = provider_registry._providers["deepseek"]
+    fake_provider = FakeProvider()
+    provider_registry._providers["deepseek"] = fake_provider
+    try:
+        admin_token = await login(client, "admin", "admin-password")
+        create_user = await client.post(
+            "/api/admin/users",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"username": "think-user", "password": "developer-password1"},
+        )
+        assert create_user.status_code in (201, 409)
+        user_token = await login(client, "think-user", "developer-password1")
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        created = await client.post(
+            "/api/me/api-keys",
+            headers=user_headers,
+            json={"name": "think-test"},
+        )
+        assert created.status_code == 201
+        api_headers = {"Authorization": f"Bearer {created.json()['key']}"}
+
+        async with SessionLocal() as session:
+            provider_id = await session.scalar(
+                select(ProviderConfig.id).where(ProviderConfig.code == "deepseek")
+            )
+            for public_model, capabilities in (
+                ("deepseek-v4-think", None),
+                ("deepseek-v4-lite", {"chat": True, "stream": True}),
+            ):
+                existing = await session.scalar(
+                    select(ModelConfig.id).where(
+                        ModelConfig.public_model == public_model
+                    )
+                )
+                if existing is None:
+                    session.add(
+                        ModelConfig(
+                            public_model=public_model,
+                            provider_id=provider_id,
+                            upstream_model=public_model,
+                            display_name=public_model,
+                            enabled=True,
+                            default_allowed=True,
+                            capabilities=capabilities or {},
+                        )
+                    )
+            await session.commit()
+
+        response = await client.post(
+            "/v1/chat/completions",
+            headers=api_headers,
+            json={
+                "model": "deepseek-v4-think",
+                "messages": [
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": "hello"},
+                    {
+                        "role": "assistant",
+                        "content": "with-cot",
+                        "reasoning_content": "existing-cot",
+                    },
+                    {"role": "user", "content": "again"},
+                ],
+            },
+        )
+        assert response.status_code == 200, response.text
+        sent_messages = fake_provider.payloads[-1]["messages"]
+        assert sent_messages[1]["reasoning_content"] == ""
+        assert sent_messages[2]["reasoning_content"] == "existing-cot"
+        assert "reasoning_content" not in sent_messages[0]
+        assert "reasoning_content" not in sent_messages[3]
+
+        plain = await client.post(
+            "/v1/chat/completions",
+            headers=api_headers,
+            json={
+                "model": "deepseek-v4-lite",
+                "messages": [
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": "hello"},
+                    {"role": "user", "content": "again"},
+                ],
+            },
+        )
+        assert plain.status_code == 200, plain.text
+        plain_messages = fake_provider.payloads[-1]["messages"]
+        assert all("reasoning_content" not in m for m in plain_messages)
     finally:
         provider_registry._providers["deepseek"] = original_provider
