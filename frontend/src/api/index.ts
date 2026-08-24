@@ -17,6 +17,8 @@ export interface ApiKeyItem {
   last_used_at: string | null;
   expires_at: string | null;
   can_reveal: boolean;
+  preferred_model_id: number | null;
+  preferred_model: string | null;
 }
 
 export interface ModelPreference {
@@ -52,12 +54,17 @@ export const authApi = {
 };
 
 export const meApi = {
-  config: () => http.get<{ base_url: string }>("/api/me/config"),
+  config: () =>
+    http.get<{ base_url: string; max_api_keys: number }>("/api/me/config"),
   keys: () => http.get<ApiKeyItem[]>("/api/me/api-keys"),
   createKey: (name: string) => http.post("/api/me/api-keys", { name }),
   revealKey: (id: number) =>
     http.get<{ value: string }>(`/api/me/api-keys/${id}/secret`),
   revokeKey: (id: number) => http.delete(`/api/me/api-keys/${id}`),
+  updateKeyPreferredModel: (id: number, model: string | null) =>
+    http.patch<ApiKeyItem>(`/api/me/api-keys/${id}/preferred-model`, {
+      model,
+    }),
   models: () => http.get("/api/me/models"),
   modelPreference: () =>
     http.get<ModelPreference>("/api/me/model-preference"),

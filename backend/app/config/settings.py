@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     kimi_base_url: str = "https://api.moonshot.cn/v1"
     qwen_api_key: SecretStr = SecretStr("")
     qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    max_api_keys_per_user: int = 3
     model_sync_enabled: bool = True
     model_sync_interval_seconds: int = 21600
     model_sync_initial_delay_seconds: int = 10

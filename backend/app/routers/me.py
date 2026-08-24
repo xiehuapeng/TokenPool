@@ -10,6 +10,7 @@ from app.models import ApiKey, ModelConfig, ProviderConfig, UsageLog, User
 from app.schemas.api_key import (
     ApiKeyCreate,
     ApiKeyCreated,
+    ApiKeyPreferredModelUpdate,
     ApiKeyView,
     SecretReveal,
 )
@@ -31,10 +32,11 @@ router = APIRouter(prefix="/api/me", tags=["me"])
 @router.get("/config")
 async def get_public_config(
     _user: Annotated[User, Depends(current_user)],
-) -> dict[str, str]:
+) -> dict:
     return {
         "base_url": get_settings().public_base_url,
         "timezone": BEIJING_TIMEZONE_NAME,
+        "max_api_keys": get_settings().max_api_keys_per_user,
     }
 
 
@@ -59,7 +61,7 @@ async def list_api_keys(
         expired_key.secret_ciphertext = None
     if expired_keys:
         await session.commit()
-    return list(
+    keys = list(
         await session.scalars(
             select(ApiKey)
             .where(
@@ -70,6 +72,36 @@ async def list_api_keys(
             .order_by(ApiKey.created_at.desc())
         )
     )
+    return await _key_views(session, keys)
+
+
+async def _key_views(
+    session, keys: list[ApiKey]
+) -> list[ApiKeyView]:
+    preferred_ids = {
+        key.preferred_model_id for key in keys if key.preferred_model_id is not None
+    }
+    model_names: dict[int, str] = {}
+    if preferred_ids:
+        rows = await session.scalars(
+            select(ModelConfig).where(ModelConfig.id.in_(preferred_ids))
+        )
+        model_names = {model.id: model.public_model for model in rows}
+    return [
+        ApiKeyView(
+            id=key.id,
+            name=key.name,
+            key_prefix=key.key_prefix,
+            status=key.status,
+            created_at=key.created_at,
+            last_used_at=key.last_used_at,
+            expires_at=key.expires_at,
+            can_reveal=key.can_reveal,
+            preferred_model_id=key.preferred_model_id,
+            preferred_model=model_names.get(key.preferred_model_id or 0),
+        )
+        for key in keys
+    ]
 
 
 @router.post(
@@ -80,6 +112,18 @@ async def create_api_key(
     user: Annotated[User, Depends(current_user)],
     session: DbSession,
 ) -> ApiKeyCreated:
+    max_keys = get_settings().max_api_keys_per_user
+    active_count = await session.scalar(
+        select(func.count(ApiKey.id)).where(
+            ApiKey.user_id == user.id, ApiKey.status == "active"
+        )
+    )
+    if (active_count or 0) >= max_keys:
+        raise GatewayError(
+            f"每人最多持有{max_keys}个有效API Key，请先吊销不用的Key",
+            status_code=400,
+            code="api_key_limit_reached",
+        )
     raw_key, prefix, key_hash = generate_api_key()
     key = ApiKey(
         user_id=user.id,
@@ -101,6 +145,8 @@ async def create_api_key(
         last_used_at=key.last_used_at,
         expires_at=key.expires_at,
         can_reveal=key.can_reveal,
+        preferred_model_id=key.preferred_model_id,
+        preferred_model=None,
         key=raw_key,
     )
 
@@ -150,6 +196,47 @@ async def revoke_api_key(
     key.key_hash = generate_retired_api_key_hash()
     key.secret_ciphertext = None
     await session.commit()
+
+
+@router.patch("/api-keys/{key_id}/preferred-model", response_model=ApiKeyView)
+async def update_key_preferred_model(
+    key_id: int,
+    body: ApiKeyPreferredModelUpdate,
+    user: Annotated[User, Depends(current_user)],
+    session: DbSession,
+) -> ApiKeyView:
+    key = await session.scalar(
+        select(ApiKey).where(
+            ApiKey.id == key_id,
+            ApiKey.user_id == user.id,
+            ApiKey.status == "active",
+        )
+    )
+    if key is None:
+        raise GatewayError("API Key不存在", status_code=404, code="key_not_found")
+    preferred_model = None
+    if body.model is not None:
+        route = await resolve_model(
+            session, user_id=user.id, public_model=body.model
+        )
+        key.preferred_model_id = route.model.id
+        preferred_model = route.model.public_model
+    else:
+        key.preferred_model_id = None
+    await session.commit()
+    await session.refresh(key)
+    return ApiKeyView(
+        id=key.id,
+        name=key.name,
+        key_prefix=key.key_prefix,
+        status=key.status,
+        created_at=key.created_at,
+        last_used_at=key.last_used_at,
+        expires_at=key.expires_at,
+        can_reveal=key.can_reveal,
+        preferred_model_id=key.preferred_model_id,
+        preferred_model=preferred_model,
+    )
 
 
 @router.get("/models")

@@ -24,6 +24,10 @@ class ApiKey(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    preferred_model_id: Mapped[int | None] = mapped_column(
+        ForeignKey("model_configs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     user: Mapped["User"] = relationship(back_populates="api_keys")
 

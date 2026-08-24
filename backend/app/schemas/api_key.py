@@ -20,6 +20,8 @@ class ApiKeyView(BaseModel):
     last_used_at: datetime | None
     expires_at: datetime | None
     can_reveal: bool
+    preferred_model_id: int | None = None
+    preferred_model: str | None = None
 
     @field_serializer("created_at", "last_used_at", "expires_at")
     def serialize_beijing_time(
@@ -30,6 +32,10 @@ class ApiKeyView(BaseModel):
 
 class ApiKeyCreated(ApiKeyView):
     key: str
+
+
+class ApiKeyPreferredModelUpdate(BaseModel):
+    model: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class SecretReveal(BaseModel):

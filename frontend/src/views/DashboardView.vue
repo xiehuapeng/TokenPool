@@ -10,6 +10,7 @@ import { preloadAuthenticatedViewsWhenIdle } from "@/router/viewLoaders";
 import { formatBeijingTime } from "@/utils/time";
 
 const baseUrl = ref("");
+const maxApiKeys = ref(3);
 const keys = ref<ApiKeyItem[]>([]);
 const loading = ref(true);
 const generatedKey = ref("");
@@ -20,6 +21,8 @@ const selectedModel = ref("");
 const savedSelectedModel = ref("");
 const gatewayModel = ref("team-coding");
 const savingModel = ref(false);
+const savingKeyModelId = ref<number | null>(null);
+const keyLimitReached = computed(() => keys.value.length >= maxApiKeys.value);
 const modelUsageDescriptions: Record<string, string> = {
   "deepseek-v4-pro": "适合复杂任务与深度推理",
   "deepseek-v4-flash": "适合日常问答与简单任务",
@@ -67,6 +70,7 @@ async function load() {
       meApi.modelPreference(),
     ]);
     baseUrl.value = config.data.base_url;
+    maxApiKeys.value = config.data.max_api_keys ?? 3;
     keys.value = keyList.data;
     models.value = modelList.data;
     gatewayModel.value = preference.data.gateway_model;
@@ -103,7 +107,38 @@ async function saveModelPreference(value: string) {
   }
 }
 
+async function saveKeyModel(row: ApiKeyItem, value: string) {
+  const normalized = value || "";
+  if (normalized === (row.preferred_model || "")) return;
+  const previous = row.preferred_model;
+  savingKeyModelId.value = row.id;
+  try {
+    const { data } = await meApi.updateKeyPreferredModel(
+      row.id,
+      normalized || null,
+    );
+    row.preferred_model = data.preferred_model;
+    row.preferred_model_id = data.preferred_model_id;
+    ElMessage.success(
+      normalized
+        ? `该 Key 的 team-coding 请求将路由到 ${normalized}`
+        : "已恢复跟随全局默认模型",
+    );
+  } catch (error) {
+    row.preferred_model = previous;
+    ElMessage.error(errorMessage(error));
+  } finally {
+    savingKeyModelId.value = null;
+  }
+}
+
 async function createKey() {
+  if (keyLimitReached.value) {
+    ElMessage.warning(
+      `每人最多持有 ${maxApiKeys.value} 个有效 API Key，请先吊销不用的 Key`,
+    );
+    return;
+  }
   try {
     const { value } = await ElMessageBox.prompt("为这个 Key 填写名称", "生成 API Key", {
       inputValue: "Coding tools",
@@ -157,7 +192,14 @@ onMounted(load);
   <div v-loading="loading">
     <div class="page-heading">
       <div><h1>工作台</h1><p>配置 Coding 工具并管理你的访问凭证。</p></div>
-      <el-button type="primary" @click="createKey">生成 API Key</el-button>
+      <div class="key-limit-heading">
+        <span class="muted compact">
+          {{ keys.length }}/{{ maxApiKeys }} 个有效 Key
+        </span>
+        <el-button type="primary" :disabled="keyLimitReached" @click="createKey">
+          生成 API Key
+        </el-button>
+      </div>
     </div>
 
     <el-row :gutter="20">
@@ -248,11 +290,35 @@ onMounted(load);
 
     <el-card shadow="never" class="section-card">
       <template #header>
-        <div class="card-header"><strong>我的 API Keys</strong><span>完整 Key 加密保存，可重复查看</span></div>
+        <div class="card-header">
+          <strong>我的 API Keys</strong>
+          <span>每个 Key 可单独绑定偏好模型，优先级高于全局默认</span>
+        </div>
       </template>
       <el-table :data="keys" empty-text="尚未生成 API Key">
         <el-table-column prop="name" label="名称" />
         <el-table-column prop="key_prefix" label="Key 前缀" min-width="190" />
+        <el-table-column label="偏好模型" min-width="220">
+          <template #default="{ row }">
+            <el-select
+              :model-value="row.preferred_model || ''"
+              size="small"
+              placeholder="跟随全局默认"
+              aria-label="选择该 Key 的偏好模型"
+              :loading="savingKeyModelId === row.id"
+              :disabled="savingKeyModelId === row.id"
+              @change="(value: string) => saveKeyModel(row as ApiKeyItem, value)"
+            >
+              <el-option label="跟随全局默认" value="" />
+              <el-option
+                v-for="model in activeModels"
+                :key="model.id"
+                :label="model.display_name || model.id"
+                :value="model.id"
+              />
+            </el-select>
+          </template>
+        </el-table-column>
         <el-table-column label="创建时间" min-width="180">
           <template #default="{ row }">
             {{ formatBeijingTime(row.created_at) }}
