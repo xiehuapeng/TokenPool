@@ -6,6 +6,9 @@ from app.models import ModelConfig, ProviderConfig, User, UserModelPermission
 from app.utils.security import hash_password
 
 
+VISION_CAPABLE_MODELS = {"qwen3.8-max", "kimi-k3"}
+
+
 async def seed_initial_data() -> None:
     settings = get_settings()
     async with SessionLocal() as session:
@@ -119,6 +122,7 @@ async def seed_initial_data() -> None:
                 "glm-5-turbo",
                 "glm-5.1",
                 "glm-5.2",
+                "glm-5.3",
             )
         ):
             existing_model = await session.scalar(
@@ -206,6 +210,8 @@ async def seed_initial_data() -> None:
                     "json": True,
                     "thinking": True,
                 }
+                if model_id in VISION_CAPABLE_MODELS:
+                    capabilities["vision"] = True
                 if existing_model is None:
                     session.add(
                         ModelConfig(
