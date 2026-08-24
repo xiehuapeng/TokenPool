@@ -3,7 +3,11 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import "element-plus/es/components/message/style/css";
 import "element-plus/es/components/message-box/style/css";
-import { adminApi } from "@/api";
+import {
+  adminApi,
+  type AdminLogFilters,
+  type AdminUsageFilters,
+} from "@/api";
 import { errorMessage } from "@/api/http";
 import { formatBeijingTime } from "@/utils/time";
 import { copyText } from "@/utils/clipboard";
@@ -15,9 +19,33 @@ const inviteCodes = ref<any[]>([]);
 const keys = ref<any[]>([]);
 const models = ref<any[]>([]);
 const providers = ref<any[]>([]);
-const stats = ref<any>({ by_user: [], by_model: [] });
+const stats = ref<any>({
+  summary: {},
+  by_user: [],
+  by_model: [],
+  by_provider: [],
+  filter_options: { models: [], providers: [] },
+});
 const logs = ref<any[]>([]);
 const totalLogs = ref(0);
+const statsLoading = ref(false);
+const logsLoading = ref(false);
+const logPage = ref(1);
+const logPageSize = ref(50);
+const statsFilters = reactive({
+  days: 30,
+  username: "",
+  model: "",
+  provider: "",
+});
+const logFilters = reactive({
+  days: 30,
+  username: "",
+  model: "",
+  provider: "",
+  status: "",
+  request_id: "",
+});
 const createUserVisible = ref(false);
 const createInviteVisible = ref(false);
 const providerModelsVisible = ref(false);
@@ -38,6 +66,32 @@ const inviteForm = reactive({
   max_uses: 20 as number | null,
   expires_at: "",
 });
+
+const usageModelOptions = computed(() =>
+  (stats.value.filter_options?.models || []) as string[],
+);
+
+const usageProviderOptions = computed(() => {
+  const usedProviders = new Set<string>(
+    stats.value.filter_options?.providers || [],
+  );
+  return providers.value
+    .filter(
+      (provider: any) =>
+        !usedProviders.size || usedProviders.has(provider.code),
+    )
+    .map((provider: any) => ({
+      value: provider.code,
+      label: provider.display_name,
+    }));
+});
+
+const maxUserTokens = computed(() =>
+  Math.max(
+    0,
+    ...stats.value.by_user.map((item: any) => Number(item.total_tokens || 0)),
+  ),
+);
 
 const modelGroups = computed(() => {
   const providerOrder = new Map(
@@ -117,8 +171,8 @@ async function loadAll() {
       adminApi.keys(),
       adminApi.models(),
       adminApi.providers(),
-      adminApi.stats(),
-      adminApi.logs(),
+      adminApi.stats(buildUsageParams(statsFilters)),
+      adminApi.logs(buildLogParams()),
     ]);
     users.value = u.data;
     inviteCodes.value = i.data;
@@ -239,6 +293,128 @@ async function setModelEnabled(row: any, enabled: boolean) {
     row.enabled = !enabled;
     ElMessage.error(errorMessage(error));
   }
+}
+
+function buildUsageParams(filters: typeof statsFilters): AdminUsageFilters {
+  return {
+    days: filters.days,
+    username: filters.username || undefined,
+    model: filters.model || undefined,
+    provider: filters.provider || undefined,
+  };
+}
+
+function buildLogParams(): AdminLogFilters {
+  return {
+    days: logFilters.days,
+    username: logFilters.username || undefined,
+    model: logFilters.model || undefined,
+    provider: logFilters.provider || undefined,
+    status: logFilters.status || undefined,
+    request_id: logFilters.request_id.trim() || undefined,
+    limit: logPageSize.value,
+    offset: (logPage.value - 1) * logPageSize.value,
+  };
+}
+
+async function loadStats() {
+  statsLoading.value = true;
+  try {
+    const response = await adminApi.stats(buildUsageParams(statsFilters));
+    stats.value = response.data;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    statsLoading.value = false;
+  }
+}
+
+async function loadLogs() {
+  logsLoading.value = true;
+  try {
+    const response = await adminApi.logs(buildLogParams());
+    logs.value = response.data.items;
+    totalLogs.value = response.data.total;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    logsLoading.value = false;
+  }
+}
+
+async function applyStatsFilters() {
+  await loadStats();
+}
+
+async function resetStatsFilters() {
+  Object.assign(statsFilters, {
+    days: 30,
+    username: "",
+    model: "",
+    provider: "",
+  });
+  await loadStats();
+}
+
+async function applyLogFilters() {
+  logPage.value = 1;
+  await loadLogs();
+}
+
+async function resetLogFilters() {
+  Object.assign(logFilters, {
+    days: 30,
+    username: "",
+    model: "",
+    provider: "",
+    status: "",
+    request_id: "",
+  });
+  logPage.value = 1;
+  await loadLogs();
+}
+
+async function showUserLogs(username: string) {
+  Object.assign(logFilters, {
+    days: statsFilters.days,
+    username,
+    model: statsFilters.model,
+    provider: statsFilters.provider,
+    status: "",
+    request_id: "",
+  });
+  logPage.value = 1;
+  activeTab.value = "logs";
+  await loadLogs();
+}
+
+async function changeLogPage(page: number) {
+  logPage.value = page;
+  await loadLogs();
+}
+
+function formatTokens(value: unknown) {
+  return Number(value || 0).toLocaleString();
+}
+
+function userSuccessRate(row: any) {
+  return row.requests
+    ? Math.round((Number(row.success_requests) / Number(row.requests)) * 1000) /
+        10
+    : 0;
+}
+
+function userTokenPercentage(row: any) {
+  return maxUserTokens.value
+    ? Math.round((Number(row.total_tokens || 0) / maxUserTokens.value) * 100)
+    : 0;
+}
+
+function statusTagType(status: string) {
+  if (status === "success") return "success";
+  if (status === "failed") return "danger";
+  if (status === "pending") return "warning";
+  return "info";
 }
 
 async function revealInviteCode(row: any) {
@@ -606,31 +782,237 @@ onMounted(loadAll);
         </el-tab-pane>
 
         <el-tab-pane label="Token 统计" name="stats">
-          <h3>用户维度（最近 {{ stats.days }} 天）</h3>
-          <el-table :data="stats.by_user">
-            <el-table-column prop="username" label="用户" />
-            <el-table-column prop="provider" label="Provider" />
-            <el-table-column prop="requests" label="请求" />
-            <el-table-column label="Token">
-              <template #default="{ row }">
-                {{ Number(row.tokens).toLocaleString() }}
-              </template>
-            </el-table-column>
-          </el-table>
-          <h3 class="subheading">模型维度</h3>
-          <el-table :data="stats.by_model">
-            <el-table-column prop="model" label="模型" />
-            <el-table-column prop="requests" label="请求" />
-            <el-table-column label="Token">
-              <template #default="{ row }">
-                {{ Number(row.tokens).toLocaleString() }}
-              </template>
-            </el-table-column>
-          </el-table>
+          <div class="usage-filter-bar">
+            <el-select v-model="statsFilters.days" class="usage-filter-period">
+              <el-option label="最近 24 小时" :value="1" />
+              <el-option label="最近 7 天" :value="7" />
+              <el-option label="最近 30 天" :value="30" />
+              <el-option label="最近 90 天" :value="90" />
+              <el-option label="全部时间" :value="0" />
+            </el-select>
+            <el-select
+              v-model="statsFilters.username"
+              filterable
+              clearable
+              placeholder="全部用户"
+            >
+              <el-option
+                v-for="user in users"
+                :key="user.id"
+                :label="user.username"
+                :value="user.username"
+              />
+            </el-select>
+            <el-select
+              v-model="statsFilters.model"
+              filterable
+              clearable
+              placeholder="全部实际模型"
+            >
+              <el-option
+                v-for="model in usageModelOptions"
+                :key="model"
+                :label="model"
+                :value="model"
+              />
+            </el-select>
+            <el-select
+              v-model="statsFilters.provider"
+              clearable
+              placeholder="全部 Provider"
+            >
+              <el-option
+                v-for="provider in usageProviderOptions"
+                :key="provider.value"
+                :label="provider.label"
+                :value="provider.value"
+              />
+            </el-select>
+            <div class="usage-filter-actions">
+              <el-button type="primary" :loading="statsLoading" @click="applyStatsFilters">
+                查询
+              </el-button>
+              <el-button @click="resetStatsFilters">重置</el-button>
+            </div>
+          </div>
+
+          <div class="admin-metric-grid" v-loading="statsLoading">
+            <div class="metric-card usage-metric-primary">
+              <span>总 Token</span>
+              <strong>{{ formatTokens(stats.summary.total_tokens) }}</strong>
+              <small>筛选范围内累计消耗</small>
+            </div>
+            <div class="metric-card">
+              <span>输入 Token</span>
+              <strong>{{ formatTokens(stats.summary.input_tokens) }}</strong>
+              <small>Prompt 与上下文</small>
+            </div>
+            <div class="metric-card">
+              <span>输出 Token</span>
+              <strong>{{ formatTokens(stats.summary.output_tokens) }}</strong>
+              <small>模型生成内容</small>
+            </div>
+            <div class="metric-card">
+              <span>请求 / 成功率</span>
+              <strong>{{ formatTokens(stats.summary.requests) }}</strong>
+              <small>
+                成功 {{ stats.summary.success_rate || 0 }}%，未成功
+                {{ stats.summary.non_success_requests || 0 }} 次
+              </small>
+            </div>
+            <div class="metric-card">
+              <span>活跃用户 / 模型</span>
+              <strong>
+                {{ stats.summary.active_users || 0 }} / {{ stats.summary.models_used || 0 }}
+              </strong>
+              <small>发生过调用的用户和模型</small>
+            </div>
+          </div>
+
+          <section class="usage-section">
+            <div class="usage-section-heading">
+              <div>
+                <h3>成员用量</h3>
+                <p>每位成员一行，可直接进入该成员的调用日志。</p>
+              </div>
+              <el-tag effect="plain">{{ stats.by_user.length }} 人</el-tag>
+            </div>
+            <el-table :data="stats.by_user" v-loading="statsLoading">
+              <el-table-column prop="username" label="用户" min-width="130" fixed="left" />
+              <el-table-column label="总 Token" min-width="210" sortable prop="total_tokens">
+                <template #default="{ row }">
+                  <div class="user-token-cell">
+                    <strong>{{ formatTokens(row.total_tokens) }}</strong>
+                    <el-progress
+                      :percentage="userTokenPercentage(row)"
+                      :show-text="false"
+                      :stroke-width="5"
+                    />
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column label="输入 / 输出" min-width="170">
+                <template #default="{ row }">
+                  {{ formatTokens(row.input_tokens) }} / {{ formatTokens(row.output_tokens) }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="requests" label="请求数" width="100" sortable />
+              <el-table-column label="成功率" width="105">
+                <template #default="{ row }">{{ userSuccessRate(row) }}%</template>
+              </el-table-column>
+              <el-table-column label="模型 / Provider" min-width="145">
+                <template #default="{ row }">
+                  {{ row.models_used }} / {{ row.providers_used }}
+                </template>
+              </el-table-column>
+              <el-table-column label="最近调用" min-width="180">
+                <template #default="{ row }">
+                  {{ formatBeijingTime(row.last_request_time, "暂无调用") }}
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="100" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" @click="showUserLogs(row.username)">
+                    查看日志
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+
+          <div class="usage-breakdown-grid">
+            <section class="usage-section">
+              <div class="usage-section-heading"><h3>模型用量</h3></div>
+              <el-table :data="stats.by_model" max-height="420">
+                <el-table-column prop="model" label="实际模型" min-width="160" />
+                <el-table-column prop="users" label="用户" width="70" />
+                <el-table-column prop="requests" label="请求" width="75" />
+                <el-table-column label="Token" min-width="110" align="right">
+                  <template #default="{ row }">{{ formatTokens(row.total_tokens) }}</template>
+                </el-table-column>
+              </el-table>
+            </section>
+            <section class="usage-section">
+              <div class="usage-section-heading"><h3>Provider 用量</h3></div>
+              <el-table :data="stats.by_provider" max-height="420">
+                <el-table-column prop="provider" label="Provider" min-width="120" />
+                <el-table-column prop="users" label="用户" width="70" />
+                <el-table-column prop="requests" label="请求" width="75" />
+                <el-table-column label="Token" min-width="110" align="right">
+                  <template #default="{ row }">{{ formatTokens(row.total_tokens) }}</template>
+                </el-table-column>
+              </el-table>
+            </section>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane :label="`调用日志 (${totalLogs})`" name="logs">
-          <el-table :data="logs">
+          <div class="usage-filter-bar log-filter-bar">
+            <el-select v-model="logFilters.days" class="usage-filter-period">
+              <el-option label="最近 24 小时" :value="1" />
+              <el-option label="最近 7 天" :value="7" />
+              <el-option label="最近 30 天" :value="30" />
+              <el-option label="最近 90 天" :value="90" />
+              <el-option label="全部时间" :value="0" />
+            </el-select>
+            <el-select v-model="logFilters.username" filterable clearable placeholder="全部用户">
+              <el-option
+                v-for="user in users"
+                :key="user.id"
+                :label="user.username"
+                :value="user.username"
+              />
+            </el-select>
+            <el-select v-model="logFilters.model" filterable clearable placeholder="全部实际模型">
+              <el-option
+                v-for="model in usageModelOptions"
+                :key="model"
+                :label="model"
+                :value="model"
+              />
+            </el-select>
+            <el-select v-model="logFilters.provider" clearable placeholder="全部 Provider">
+              <el-option
+                v-for="provider in usageProviderOptions"
+                :key="provider.value"
+                :label="provider.label"
+                :value="provider.value"
+              />
+            </el-select>
+            <el-select v-model="logFilters.status" clearable placeholder="全部状态">
+              <el-option label="成功" value="success" />
+              <el-option label="失败" value="failed" />
+              <el-option label="客户端断开" value="client_disconnected" />
+              <el-option label="处理中" value="pending" />
+            </el-select>
+            <el-input
+              v-model="logFilters.request_id"
+              clearable
+              placeholder="Request ID（精确）"
+              @keyup.enter="applyLogFilters"
+            />
+            <div class="usage-filter-actions">
+              <el-button type="primary" :loading="logsLoading" @click="applyLogFilters">
+                查询
+              </el-button>
+              <el-button @click="resetLogFilters">重置</el-button>
+            </div>
+          </div>
+          <div class="log-result-summary">
+            当前筛选共 <strong>{{ formatTokens(totalLogs) }}</strong> 条调用记录
+          </div>
+          <el-table :data="logs" v-loading="logsLoading">
+            <el-table-column type="expand" width="44">
+              <template #default="{ row }">
+                <div class="log-detail-grid">
+                  <span>Request ID</span><code>{{ row.request_id }}</code>
+                  <span>调用方式</span><span>{{ row.stream ? "SSE 流式" : "非流式" }}</span>
+                  <span>HTTP 状态</span><span>{{ row.http_status ?? "—" }}</span>
+                  <span>Usage 来源</span><span>{{ row.usage_source || "—" }}</span>
+                  <span>错误信息</span><span>{{ row.error_message || row.error_code || "—" }}</span>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column label="北京时间" min-width="190">
               <template #default="{ row }">
                 {{ formatBeijingTime(row.request_time) }}
@@ -640,10 +1022,33 @@ onMounted(loadAll);
             <el-table-column prop="requested_model" label="请求模型" min-width="140" />
             <el-table-column prop="model" label="实际模型" min-width="150" />
             <el-table-column prop="provider" label="Provider" />
-            <el-table-column prop="total_tokens" label="Token" />
-            <el-table-column prop="status" label="状态" />
+            <el-table-column label="输入 / 输出" min-width="150">
+              <template #default="{ row }">
+                {{ formatTokens(row.input_tokens) }} / {{ formatTokens(row.output_tokens) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="总 Token" min-width="105" align="right">
+              <template #default="{ row }">{{ formatTokens(row.total_tokens) }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="120">
+              <template #default="{ row }">
+                <el-tag :type="statusTagType(row.status)" effect="plain">
+                  {{ row.status }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="latency_ms" label="耗时（ms）" />
           </el-table>
+          <div class="log-pagination">
+            <el-pagination
+              v-model:current-page="logPage"
+              :page-size="logPageSize"
+              :total="totalLogs"
+              layout="total, prev, pager, next"
+              background
+              @current-change="changeLogPage"
+            />
+          </div>
         </el-tab-pane>
       </el-tabs>
     </el-card>

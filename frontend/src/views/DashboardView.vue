@@ -26,6 +26,9 @@ const modelUsageDescriptions: Record<string, string> = {
   "qwen3.8-max": "适合复杂任务与深度分析",
   "qwen3.7-max": "适合较复杂的综合任务",
   "qwen3.7-plus": "适合日常轻量任务",
+  "kimi-k3": "适合复杂工程与深度推理",
+  "kimi-k2.7-code": "适合日常编程与长程任务",
+  "kimi-k2.7-code-highspeed": "同等编程能力，响应更快",
 };
 const activeModels = computed(() =>
   models.value.filter((item) => item.status === "enabled"),

@@ -1,20 +1,42 @@
 # Team AI Coding Gateway
 
-面向内部研发团队的轻量 AI Coding API Gateway。后端提供 OpenAI Compatible
-接口，前端提供用户自助 API Key、用量查看和基础管理后台。
+面向 17 人内部研发团队的轻量 AI Coding API Gateway。团队成员只需配置一个
+固定模型 `team-coding`，即可在网站选择实际调用模型；后端统一完成身份认证、
+Provider 路由、SSE 转发、Token 统计和调用审计。
+
+当前版本状态：MVP 已完成加固并运行在 Ubuntu 24.04 生产服务器。本文档最后
+核对日期为 2026-08-24。
 
 ## 当前能力
 
 - `POST /v1/chat/completions`，支持普通响应和 SSE
 - `GET /v1/models`
 - `GET /health`
-- DeepSeek、智谱 GLM、Kimi、Qwen OpenAI Compatible Provider 与数据库模型路由
+- DeepSeek、智谱 GLM、Kimi、阿里云 Qwen Provider 与数据库模型路由
 - 已配置 Provider 每 6 小时自动调用官方 `/models` 同步模型元数据
 - 固定虚拟模型 `team-coding`，用户可在工作台选择实际调用模型
-- 账号密码登录、随机 API Key 生成与吊销
-- API Key 只在生成时完整显示一次，数据库仅保存摘要
-- 用户用量、管理员 Token 聚合和调用日志
-- Vue 3 + TypeScript + Element Plus 前端
+- 邀请码注册、账号密码登录、随机 API Key 生成与吊销
+- API Key 使用 HMAC 摘要认证，另存加密副本供本人登录后重复查看；失效时销毁
+- 用户个人用量；管理员按时间、用户、模型、Provider 筛选 Token 和调用日志
+- 调用日志包含输入/输出/总 Token、状态、延迟、流式类型和错误审计
+- Vue 3 + TypeScript + Element Plus 按需引入、路由懒加载和移动端适配
+
+## 当前默认开放模型
+
+实际可用模型以管理后台和 Provider 官方 `/models` 同步结果为准。当前团队默认
+开放：
+
+| Provider | 模型 | 用途 |
+|---|---|---|
+| DeepSeek | `deepseek-v4-flash` | 日常问答与简单任务 |
+| DeepSeek | `deepseek-v4-pro` | 复杂任务与深度推理 |
+| 智谱 GLM | `glm-4.5-air` | 通用 Coding 任务 |
+| Kimi | `kimi-k3` | 复杂工程与深度推理 |
+| Kimi | `kimi-k2.7-code` | 日常编程与长程任务 |
+| Kimi | `kimi-k2.7-code-highspeed` | Coding 高速响应 |
+| 阿里云 Qwen | `qwen3.8-max` | 复杂任务与深度分析 |
+| 阿里云 Qwen | `qwen3.7-max` | 较复杂综合任务 |
+| 阿里云 Qwen | `qwen3.7-plus` | 日常轻量任务 |
 
 ## 本地启动
 
@@ -124,7 +146,7 @@ cd ..\frontend
 npm run build
 ```
 
-### 真实 DeepSeek 全链路验收
+### 真实 Provider 全链路验收
 
 先启动后端，再执行：
 
@@ -133,9 +155,9 @@ cd backend
 .\.venv\Scripts\python.exe -m scripts.live_smoke_test
 ```
 
-脚本会临时生成团队 API Key，验证 `/v1/models`、非流式、SSE、精确 usage、
-上游 400 异常日志及管理员聚合，最后自动吊销临时 Key。脚本不会输出团队 Key
-或 Provider Key。
+脚本会使用管理员当前选择的实际模型，临时生成团队 API Key，验证
+`/v1/models`、非流式、SSE、精确 usage、上游异常日志及管理员聚合，最后自动
+吊销临时 Key。脚本不会输出团队 Key 或 Provider Key；真实调用会消耗上游额度。
 
 ## 数据库迁移
 
@@ -159,8 +181,8 @@ DATABASE_URL=sqlite+aiosqlite:///./data/ai_gateway.db
 DATABASE_URL=postgresql+asyncpg://gateway_user:password@postgres:5432/ai_gateway
 ```
 
-应用代码和迁移文件无需修改。正式切换前仍需在目标 PostgreSQL 实例执行一次
-在线迁移和回归测试。
+应用代码和迁移文件无需修改。当前 Ubuntu 生产环境已经使用 PostgreSQL，并由
+应用启动流程自动执行 Alembic `upgrade head`。
 
 ## 安全边界
 
@@ -173,15 +195,46 @@ DATABASE_URL=postgresql+asyncpg://gateway_user:password@postgres:5432/ai_gateway
 - `/health` 当前报告配置可用性，不会在每次探测时产生付费模型请求。
 - 自动模型同步只发送 `GET /models`，不发送 Prompt，不产生模型推理 Token；
   新发现模型默认关闭，管理员确认后才能开放给团队。
-- 用户可以自助注册普通账号；注册接口固定创建非管理员用户，管理员可在后台
-  禁用、启用和查看用户。
+- 用户需使用管理员创建的有效邀请码注册；注册接口固定创建非管理员用户，
+  管理员可在后台管理用户和邀请码。
+
+## 当前生产部署
+
+当前生产环境采用无 Docker 的轻量部署：
+
+```text
+Nginx :80
+  ├─ /assets/*       -> 预构建 Vue 静态资源
+  ├─ /api/*          -> FastAPI 127.0.0.1:8000
+  ├─ /v1/*           -> FastAPI，关闭代理缓冲以支持 SSE
+  └─ /health         -> FastAPI 健康检查
+
+FastAPI systemd service
+PostgreSQL
+```
+
+- 前端只在本地执行 `npm run build`，服务器不运行 Vite 或 Node 开发服务。
+- `deploy/deploy-frontend-atomic.sh` 使用版本目录和软链接原子切换静态资源。
+- Nginx 已启用 Gzip、带哈希静态资源长期缓存和 `index.html` 禁缓存。
+- FastAPI 当前为单 Worker，systemd 设置 `MemoryMax=512M`，适合现阶段团队规模。
+- 当前访问地址为 `http://43.108.48.44`；正式长期使用仍建议绑定域名并启用 HTTPS。
+
+仓库部署模板：
+
+- `deploy/tokenpool.service`
+- `deploy/nginx-tokenpool.conf`
+- `deploy/deploy-frontend-atomic.sh`
 
 ## 后续演进
 
-数据库结构已经预留用户模型权限、多上游账号、额度和限流。后续可继续补充
-多 API Key 轮询、Redis 限流和 Provider 自动故障切换。
+数据库结构已经预留用户模型权限、多上游账号、额度和限流。下一阶段优先级：
 
-## GitHub Pages
+1. 域名、HTTPS 和公网访问稳定性监控。
+2. 每用户/团队 Token 额度、预警和管理员导出。
+3. Redis 限流以及 Provider 并发保护。
+4. 多 API Key 轮询和 Provider 自动故障切换。
+
+## GitHub Pages（可选）
 
 仓库包含 `.github/workflows/pages.yml`，推送到 `main` 后会自动构建并发布
 `frontend/`。Pages 地址：
@@ -190,7 +243,8 @@ DATABASE_URL=postgresql+asyncpg://gateway_user:password@postgres:5432/ai_gateway
 https://xiehuapeng.github.io/TokenPool/
 ```
 
-GitHub Pages 只能托管静态前端，不能运行 FastAPI。后端部署并启用 HTTPS 后，
+GitHub Pages 不是当前生产部署方式，只用于可选的静态前端发布。它不能运行
+FastAPI；后端部署并启用 HTTPS 后，
 在 GitHub 仓库中创建 Actions 变量：
 
 ```text

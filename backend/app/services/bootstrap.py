@@ -144,18 +144,16 @@ async def seed_initial_data() -> None:
                     )
                 )
 
-        for code, name, public_model, base_url, api_key in (
+        for code, name, base_url, api_key in (
             (
                 "kimi",
                 "Kimi",
-                "kimi-k2",
                 settings.kimi_base_url,
                 settings.kimi_api_key.get_secret_value(),
             ),
             (
                 "qwen",
                 "阿里云 Qwen",
-                "qwen3.7-plus",
                 settings.qwen_base_url,
                 settings.qwen_api_key.get_secret_value(),
             ),
@@ -178,23 +176,35 @@ async def seed_initial_data() -> None:
                 provider.base_url = base_url
                 provider.enabled = bool(api_key)
             seed_models = (
-                ("qwen3.8-max", "Qwen 3.8 Max"),
-                ("qwen3.7-plus", "Qwen 3.7 Plus"),
-                ("qwen3.7-max", "Qwen 3.7 Max"),
-            ) if code == "qwen" else ((public_model, public_model),)
+                (
+                    ("qwen3.8-max", "Qwen 3.8 Max"),
+                    ("qwen3.7-plus", "Qwen 3.7 Plus"),
+                    ("qwen3.7-max", "Qwen 3.7 Max"),
+                )
+                if code == "qwen"
+                else (
+                    ("kimi-k3", "Kimi K3"),
+                    ("kimi-k2.7-code", "Kimi K2.7 Code"),
+                    (
+                        "kimi-k2.7-code-highspeed",
+                        "Kimi K2.7 Code Highspeed",
+                    ),
+                )
+            )
+            sort_base = 200 if code == "qwen" else 300
             for index, (model_id, display_name) in enumerate(seed_models):
                 existing_model = await session.scalar(
                     select(ModelConfig).where(
                         ModelConfig.public_model == model_id
                     )
                 )
-                enabled_by_default = code == "qwen" and bool(api_key)
+                enabled_by_default = bool(api_key)
                 capabilities = {
                     "chat": True,
                     "stream": True,
-                    "tools": code == "qwen",
-                    "json": code == "qwen",
-                    "thinking": code == "qwen",
+                    "tools": True,
+                    "json": True,
+                    "thinking": True,
                 }
                 if existing_model is None:
                     session.add(
@@ -206,20 +216,48 @@ async def seed_initial_data() -> None:
                             enabled=enabled_by_default,
                             default_allowed=enabled_by_default,
                             capabilities=capabilities,
-                            sort_order=200 + index,
+                            sort_order=sort_base + index,
                         )
                     )
-                elif code == "qwen":
+                else:
                     existing_model.provider_id = provider.id
                     existing_model.upstream_model = model_id
                     existing_model.display_name = display_name
-                    existing_model.enabled = enabled_by_default
-                    existing_model.default_allowed = enabled_by_default
+                    # Kimi首次接入时默认开放；后续启动保留管理员在模型
+                    # 管理页做出的启停选择。Qwen暂时沿用原有启动策略。
+                    if code == "qwen":
+                        existing_model.enabled = enabled_by_default
+                        existing_model.default_allowed = enabled_by_default
                     existing_model.capabilities = {
                         **(existing_model.capabilities or {}),
                         **capabilities,
                     }
-                    existing_model.sort_order = 200 + index
+                    existing_model.sort_order = sort_base + index
+
+        # 旧版kimi-k2已不在当前官方模型列表中。升级时迁移用户偏好并
+        # 删除历史模型配置，避免继续展示或路由到已退役的模型名。
+        retired_kimi = await session.scalar(
+            select(ModelConfig).where(ModelConfig.public_model == "kimi-k2")
+        )
+        if retired_kimi is not None:
+            replacement = await session.scalar(
+                select(ModelConfig).where(
+                    ModelConfig.public_model == "kimi-k2.7-code"
+                )
+            )
+            await session.execute(
+                update(User)
+                .where(User.preferred_model_id == retired_kimi.id)
+                .values(
+                    preferred_model_id=(replacement.id if replacement else None)
+                )
+            )
+            await session.execute(
+                delete(UserModelPermission).where(
+                    UserModelPermission.model_config_id == retired_kimi.id
+                )
+            )
+            await session.delete(retired_kimi)
 
         admin_password = settings.admin_password.get_secret_value()
         if admin_password:

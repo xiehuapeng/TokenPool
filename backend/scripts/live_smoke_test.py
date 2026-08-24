@@ -1,4 +1,4 @@
-"""Run an opt-in real DeepSeek end-to-end smoke test against a running gateway.
+"""Run an opt-in real end-to-end smoke test against a running gateway.
 
 The script never prints the generated team API Key or the upstream provider Key.
 """
@@ -31,9 +31,7 @@ def usage_matches(log: dict[str, Any], usage: dict[str, Any]) -> bool:
 
 def main() -> int:
     settings = get_settings()
-    provider_key = settings.deepseek_api_key.get_secret_value()
     admin_password = settings.admin_password.get_secret_value()
-    require(bool(provider_key), "DEEPSEEK_API_KEY is not configured")
     require(bool(admin_password), "ADMIN_PASSWORD is not configured")
 
     gateway_root = os.getenv("GATEWAY_ROOT_URL", "http://127.0.0.1:8000").rstrip("/")
@@ -177,7 +175,7 @@ def main() -> int:
             require(stats.status_code == 200, "Admin stats query failed")
             expected_tokens = non_usage["total_tokens"] + stream_usage["total_tokens"]
             actual_model_tokens = sum(
-                item["tokens"]
+                item["total_tokens"]
                 for item in stats.json()["by_model"]
                 if item["model"] == actual_model
             )

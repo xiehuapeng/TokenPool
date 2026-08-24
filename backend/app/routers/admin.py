@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.dependencies import DbSession, admin_user
@@ -410,45 +410,186 @@ async def sync_provider_models(
 async def token_stats(
     _admin: Admin,
     session: DbSession,
-    days: int = Query(default=30, ge=1, le=366),
+    days: int = Query(default=30, ge=0, le=3660),
+    username: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
 ) -> dict:
-    since = utc_now() - timedelta(days=days)
-    by_user_rows = await session.execute(
+    since = utc_now() - timedelta(days=days) if days else None
+    conditions = []
+    if since is not None:
+        conditions.append(UsageLog.request_time >= since)
+    if username:
+        conditions.append(User.username == username)
+    if model:
+        conditions.append(UsageLog.model == model)
+    if provider:
+        conditions.append(UsageLog.provider == provider)
+
+    summary_statement = select(
+        func.count(UsageLog.id),
+        func.coalesce(func.sum(UsageLog.input_tokens), 0),
+        func.coalesce(func.sum(UsageLog.output_tokens), 0),
+        func.coalesce(func.sum(UsageLog.total_tokens), 0),
+        func.sum(case((UsageLog.status == "success", 1), else_=0)),
+        func.sum(case((UsageLog.status == "failed", 1), else_=0)),
+        func.count(func.distinct(UsageLog.user_id)),
+        func.count(func.distinct(UsageLog.model)),
+    ).join(User, User.id == UsageLog.user_id)
+    if conditions:
+        summary_statement = summary_statement.where(*conditions)
+    summary = (await session.execute(summary_statement)).one()
+
+    by_user_statement = (
         select(
             User.username,
-            UsageLog.provider,
             func.count(UsageLog.id),
+            func.coalesce(func.sum(UsageLog.input_tokens), 0),
+            func.coalesce(func.sum(UsageLog.output_tokens), 0),
             func.coalesce(func.sum(UsageLog.total_tokens), 0),
+            func.sum(case((UsageLog.status == "success", 1), else_=0)),
+            func.count(func.distinct(UsageLog.model)),
+            func.count(func.distinct(UsageLog.provider)),
+            func.max(UsageLog.request_time),
         )
         .join(User, User.id == UsageLog.user_id)
-        .where(UsageLog.request_time >= since)
-        .group_by(User.username, UsageLog.provider)
+        .group_by(User.username)
         .order_by(func.sum(UsageLog.total_tokens).desc())
     )
-    by_model_rows = await session.execute(
+    if conditions:
+        by_user_statement = by_user_statement.where(*conditions)
+    by_user_rows = await session.execute(
+        by_user_statement
+    )
+    usage_by_username = {
+        row[0]: {
+            "username": row[0],
+            "requests": row[1],
+            "input_tokens": row[2],
+            "output_tokens": row[3],
+            "total_tokens": row[4],
+            "success_requests": row[5] or 0,
+            "models_used": row[6],
+            "providers_used": row[7],
+            "last_request_time": beijing_iso(row[8]),
+        }
+        for row in by_user_rows
+    }
+    user_statement = select(User.username).order_by(User.username)
+    if username:
+        user_statement = user_statement.where(User.username == username)
+    all_usernames = list(await session.scalars(user_statement))
+    by_user = [
+        usage_by_username.get(
+            item,
+            {
+                "username": item,
+                "requests": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "success_requests": 0,
+                "models_used": 0,
+                "providers_used": 0,
+                "last_request_time": None,
+            },
+        )
+        for item in all_usernames
+    ]
+    by_user.sort(key=lambda item: (-item["total_tokens"], item["username"]))
+
+    by_model_statement = (
         select(
             UsageLog.model,
             func.count(UsageLog.id),
+            func.coalesce(func.sum(UsageLog.input_tokens), 0),
+            func.coalesce(func.sum(UsageLog.output_tokens), 0),
             func.coalesce(func.sum(UsageLog.total_tokens), 0),
+            func.count(func.distinct(UsageLog.user_id)),
+            func.sum(case((UsageLog.status == "success", 1), else_=0)),
         )
-        .where(UsageLog.request_time >= since)
+        .join(User, User.id == UsageLog.user_id)
         .group_by(UsageLog.model)
         .order_by(func.sum(UsageLog.total_tokens).desc())
     )
+    if conditions:
+        by_model_statement = by_model_statement.where(*conditions)
+    by_model_rows = await session.execute(by_model_statement)
+
+    by_provider_statement = (
+        select(
+            UsageLog.provider,
+            func.count(UsageLog.id),
+            func.coalesce(func.sum(UsageLog.total_tokens), 0),
+            func.count(func.distinct(UsageLog.user_id)),
+        )
+        .join(User, User.id == UsageLog.user_id)
+        .group_by(UsageLog.provider)
+        .order_by(func.sum(UsageLog.total_tokens).desc())
+    )
+    if conditions:
+        by_provider_statement = by_provider_statement.where(*conditions)
+    by_provider_rows = await session.execute(by_provider_statement)
+
+    filter_models = list(
+        await session.scalars(
+            select(UsageLog.model).distinct().order_by(UsageLog.model)
+        )
+    )
+    filter_providers = list(
+        await session.scalars(
+            select(UsageLog.provider).distinct().order_by(UsageLog.provider)
+        )
+    )
+
+    total_requests = summary[0] or 0
+    success_requests = summary[4] or 0
     return {
         "days": days,
-        "by_user": [
-            {
-                "username": row[0],
-                "provider": row[1],
-                "requests": row[2],
-                "tokens": row[3],
-            }
-            for row in by_user_rows
-        ],
+        "filters": {
+            "username": username,
+            "model": model,
+            "provider": provider,
+        },
+        "summary": {
+            "requests": total_requests,
+            "success_requests": success_requests,
+            "failed_requests": summary[5] or 0,
+            "non_success_requests": total_requests - success_requests,
+            "success_rate": round(success_requests / total_requests * 100, 1)
+            if total_requests
+            else 0,
+            "input_tokens": summary[1],
+            "output_tokens": summary[2],
+            "total_tokens": summary[3],
+            "active_users": summary[6],
+            "models_used": summary[7],
+        },
+        "filter_options": {
+            "models": filter_models,
+            "providers": filter_providers,
+        },
+        "by_user": by_user,
         "by_model": [
-            {"model": row[0], "requests": row[1], "tokens": row[2]}
+            {
+                "model": row[0],
+                "requests": row[1],
+                "input_tokens": row[2],
+                "output_tokens": row[3],
+                "total_tokens": row[4],
+                "users": row[5],
+                "success_requests": row[6] or 0,
+            }
             for row in by_model_rows
+        ],
+        "by_provider": [
+            {
+                "provider": row[0],
+                "requests": row[1],
+                "total_tokens": row[2],
+                "users": row[3],
+            }
+            for row in by_provider_rows
         ],
     }
 
@@ -459,8 +600,10 @@ async def usage_logs(
     session: DbSession,
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    days: int = Query(default=30, ge=0, le=3660),
     username: str | None = None,
     model: str | None = None,
+    provider: str | None = None,
     request_id: str | None = None,
     log_status: str | None = Query(default=None, alias="status"),
 ) -> dict:
@@ -473,10 +616,14 @@ async def usage_logs(
         User, User.id == UsageLog.user_id
     )
     conditions = []
+    if days:
+        conditions.append(UsageLog.request_time >= utc_now() - timedelta(days=days))
     if username:
         conditions.append(User.username == username)
     if model:
         conditions.append(UsageLog.model == model)
+    if provider:
+        conditions.append(UsageLog.provider == provider)
     if request_id:
         conditions.append(UsageLog.request_id == request_id)
     if log_status:
@@ -496,11 +643,15 @@ async def usage_logs(
                 "requested_model": log.requested_model or log.model,
                 "model": log.model,
                 "provider": log.provider,
+                "stream": log.stream,
                 "input_tokens": log.input_tokens,
                 "output_tokens": log.output_tokens,
                 "total_tokens": log.total_tokens,
+                "usage_source": log.usage_source,
                 "status": log.status,
+                "http_status": log.http_status,
                 "latency_ms": log.latency_ms,
+                "error_code": log.error_code,
                 "error_message": log.error_message,
             }
             for log, user in rows

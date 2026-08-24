@@ -246,6 +246,76 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .metric-card span { color: #667085; font-size: 13px; }
 .metric-card strong { margin-top: 10px; font-size: 30px; letter-spacing: -.5px; }
 .subheading { margin-top: 28px; }
+.usage-filter-bar {
+  display: grid;
+  grid-template-columns: 150px repeat(3, minmax(160px, 1fr)) auto;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid #e4eaf2;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.log-filter-bar {
+  grid-template-columns: 150px repeat(4, minmax(145px, 1fr));
+}
+.log-filter-bar .el-input { grid-column: span 2; }
+.usage-filter-actions { display: flex; align-items: center; }
+.admin-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.admin-metric-grid .metric-card { min-width: 0; padding: 18px; }
+.admin-metric-grid .metric-card strong { overflow-wrap: anywhere; font-size: 25px; }
+.admin-metric-grid .metric-card small {
+  display: block;
+  min-height: 18px;
+  margin-top: 8px;
+  color: #98a2b3;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.usage-metric-primary {
+  border-color: #b9d7ff;
+  background: linear-gradient(145deg, #f4f9ff, #fff);
+}
+.usage-metric-primary strong { color: #1677ff; }
+.usage-section {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #e4eaf2;
+  border-radius: 10px;
+  background: #fff;
+}
+.usage-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.usage-section-heading h3 { margin: 0; font-size: 17px; }
+.usage-section-heading p { margin: 5px 0 0; color: #667085; font-size: 13px; }
+.user-token-cell strong { margin-bottom: 6px; font-size: 14px; }
+.user-token-cell .el-progress { width: 150px; max-width: 100%; }
+.usage-breakdown-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
+  gap: 18px;
+}
+.log-result-summary { margin: 0 0 12px; color: #667085; font-size: 13px; }
+.log-detail-grid {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 8px 14px;
+  padding: 6px 24px 14px;
+  color: #475467;
+}
+.log-detail-grid > span:nth-child(odd) { color: #98a2b3; }
+.log-detail-grid code { overflow-wrap: anywhere; }
+.log-pagination { display: flex; justify-content: flex-end; margin-top: 18px; }
 
 @media (max-width: 768px) {
   .selected-model-code { display: block; margin: 10px 0 0; }
@@ -323,6 +393,19 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   .code-block { padding: 16px; font-size: 12px; }
   .metric-card { padding: 18px; }
   .metric-card strong { font-size: 25px; }
+  .usage-filter-bar,
+  .log-filter-bar,
+  .admin-metric-grid,
+  .usage-breakdown-grid {
+    grid-template-columns: 1fr;
+  }
+  .log-filter-bar .el-input { grid-column: auto; }
+  .usage-filter-actions .el-button { flex: 1; }
+  .usage-section { padding: 12px; }
+  .usage-section-heading { align-items: flex-start; }
+  .log-detail-grid { grid-template-columns: 1fr; padding: 6px 12px 14px; }
+  .log-detail-grid > span:nth-child(odd) { margin-top: 5px; font-weight: 600; }
+  .log-pagination { justify-content: center; overflow-x: auto; }
   .el-dialog {
     width: calc(100vw - 24px) !important;
     margin-top: 5vh !important;

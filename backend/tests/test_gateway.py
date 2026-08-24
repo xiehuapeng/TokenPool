@@ -264,6 +264,69 @@ async def test_openai_compatible_non_stream_and_stream(client):
         assert admin_logs.json()["items"][0]["request_time"].endswith("+08:00")
         assert admin_logs.json()["items"][0]["requested_model"] == "team-coding"
         assert admin_logs.json()["items"][0]["model"] == "deepseek-v4-flash"
+        assert admin_logs.json()["items"][0]["input_tokens"] == 4
+        assert admin_logs.json()["items"][0]["output_tokens"] == 2
+        assert admin_logs.json()["items"][0]["usage_source"] == "upstream"
+
+        filtered_stats = await client.get(
+            "/api/admin/stats",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            params={
+                "days": 30,
+                "username": "chat-user",
+                "model": "deepseek-v4-flash",
+                "provider": "deepseek",
+            },
+        )
+        assert filtered_stats.status_code == 200
+        assert filtered_stats.json()["summary"] == {
+            "requests": 2,
+            "success_requests": 2,
+            "failed_requests": 0,
+            "non_success_requests": 0,
+            "success_rate": 100.0,
+            "input_tokens": 8,
+            "output_tokens": 4,
+            "total_tokens": 12,
+            "active_users": 1,
+            "models_used": 1,
+        }
+        chat_user_stats = filtered_stats.json()["by_user"][0]
+        assert chat_user_stats["username"] == "chat-user"
+        assert chat_user_stats["requests"] == 2
+        assert chat_user_stats["total_tokens"] == 12
+        assert chat_user_stats["last_request_time"].endswith("+08:00")
+        assert filtered_stats.json()["by_model"][0]["users"] == 1
+        assert filtered_stats.json()["by_provider"][0]["provider"] == "deepseek"
+        assert "deepseek-v4-flash" in filtered_stats.json()["filter_options"][
+            "models"
+        ]
+
+        filtered_logs = await client.get(
+            "/api/admin/usage-logs",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            params={
+                "days": 30,
+                "username": "chat-user",
+                "model": "deepseek-v4-flash",
+                "provider": "deepseek",
+                "status": "success",
+                "limit": 1,
+                "offset": 1,
+            },
+        )
+        assert filtered_logs.status_code == 200
+        assert filtered_logs.json()["total"] == 2
+        assert len(filtered_logs.json()["items"]) == 1
+        assert filtered_logs.json()["items"][0]["username"] == "chat-user"
+
+        empty_logs = await client.get(
+            "/api/admin/usage-logs",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            params={"username": "chat-user", "model": "not-a-model"},
+        )
+        assert empty_logs.status_code == 200
+        assert empty_logs.json() == {"total": 0, "items": []}
 
         explicit_model = await client.post(
             "/v1/chat/completions",

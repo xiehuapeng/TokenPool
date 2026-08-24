@@ -14,7 +14,9 @@ async def test_model_discovery_adds_disabled_models_and_marks_availability(clien
             select(ProviderConfig).where(ProviderConfig.code == "kimi")
         )
         existing = await session.scalar(
-            select(ModelConfig).where(ModelConfig.public_model == "kimi-k2")
+            select(ModelConfig).where(
+                ModelConfig.public_model == "kimi-k2.7-code"
+            )
         )
         existing.enabled = True
         existing.default_allowed = True

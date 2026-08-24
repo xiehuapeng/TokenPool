@@ -25,6 +25,20 @@ export interface ModelPreference {
   selection_source: "user" | "default";
 }
 
+export interface AdminUsageFilters {
+  days?: number;
+  username?: string;
+  model?: string;
+  provider?: string;
+}
+
+export interface AdminLogFilters extends AdminUsageFilters {
+  limit?: number;
+  offset?: number;
+  request_id?: string;
+  status?: string;
+}
+
 export const authApi = {
   login: (username: string, password: string) =>
     http.post("/api/auth/login", { username, password }),
@@ -75,6 +89,8 @@ export const adminApi = {
     http.get(`/api/admin/providers/${code}/available-models`),
   syncProviderModels: (code: string, body: object) =>
     http.post(`/api/admin/providers/${code}/sync-models`, body),
-  stats: () => http.get("/api/admin/stats"),
-  logs: () => http.get("/api/admin/usage-logs"),
+  stats: (params: AdminUsageFilters = {}) =>
+    http.get("/api/admin/stats", { params }),
+  logs: (params: AdminLogFilters = {}) =>
+    http.get("/api/admin/usage-logs", { params }),
 };

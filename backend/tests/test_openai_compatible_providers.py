@@ -11,7 +11,7 @@ from app.providers.qwen import QwenProvider
 @pytest.mark.parametrize(
     ("provider_class", "model_id"),
     [
-        (KimiProvider, "kimi-k2"),
+        (KimiProvider, "kimi-k2.7-code"),
         (QwenProvider, "qwen3-coder-plus"),
     ],
 )
@@ -49,7 +49,7 @@ async def test_provider_lists_models_without_chat_request(
 @pytest.mark.parametrize(
     ("provider_class", "model_id"),
     [
-        (KimiProvider, "kimi-k2"),
+        (KimiProvider, "kimi-k2.7-code"),
         (QwenProvider, "qwen3-coder-plus"),
     ],
 )
