@@ -14,3 +14,4 @@ frontend/vite.config.d.ts
 .playwright-cli/
 output/
 .run/
+.tmp_docs/
