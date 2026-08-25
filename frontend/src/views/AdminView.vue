@@ -1675,6 +1675,7 @@ onMounted(loadAll);
       <div class="usage-detail-toolbar">
         <span>统计周期</span>
         <el-select v-model="usageDetailDays" @change="loadUsageDetail">
+          <el-option label="最近 1 天" :value="1" />
           <el-option label="最近 7 天" :value="7" />
           <el-option label="最近 30 天" :value="30" />
           <el-option label="最近 90 天" :value="90" />
