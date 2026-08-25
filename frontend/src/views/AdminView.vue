@@ -46,6 +46,15 @@ const logFilters = reactive({
   status: "",
   request_id: "",
 });
+const usageDetailVisible = ref(false);
+const usageDetailLoading = ref(false);
+const usageDetailUser = ref<any>(null);
+const usageDetailDays = ref(30);
+const usageDetail = ref<any>({
+  summary: {},
+  by_model: [],
+  by_day: [],
+});
 const createUserVisible = ref(false);
 const createInviteVisible = ref(false);
 const providerModelsVisible = ref(false);
@@ -520,6 +529,43 @@ async function showUserLogs(username: string) {
   await loadLogs();
 }
 
+async function loadUsageDetail() {
+  if (!usageDetailUser.value) return;
+  usageDetailLoading.value = true;
+  try {
+    const response = await adminApi.userUsage(
+      usageDetailUser.value.id,
+      usageDetailDays.value,
+    );
+    usageDetail.value = response.data;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    usageDetailLoading.value = false;
+  }
+}
+
+function openUserUsage(row: any) {
+  let target = row;
+  if (target.id == null && target.username) {
+    target = users.value.find((item: any) => item.username === target.username);
+  }
+  if (!target?.id) {
+    ElMessage.warning("未找到该用户");
+    return;
+  }
+  usageDetailUser.value = target;
+  usageDetailDays.value = 30;
+  usageDetail.value = { summary: {}, by_model: [], by_day: [] };
+  usageDetailVisible.value = true;
+  loadUsageDetail();
+}
+
+function resetUsageDetail() {
+  usageDetail.value = { summary: {}, by_model: [], by_day: [] };
+  usageDetailUser.value = null;
+}
+
 async function changeLogPage(page: number) {
   logPage.value = page;
   await loadLogs();
@@ -741,8 +787,11 @@ onMounted(loadAll);
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作">
+            <el-table-column label="操作" min-width="150">
               <template #default="{ row }">
+                <el-button link type="primary" @click="openUserUsage(row)">
+                  消费明细
+                </el-button>
                 <el-button link @click="toggleUser(row)">
                   {{ row.status === "active" ? "禁用" : "启用" }}
                 </el-button>
@@ -1160,8 +1209,11 @@ onMounted(loadAll);
                   {{ formatBeijingTime(row.last_request_time, "暂无调用") }}
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="100" fixed="right">
+              <el-table-column label="操作" width="160" fixed="right">
                 <template #default="{ row }">
+                  <el-button link type="primary" @click="openUserUsage(row)">
+                    消费明细
+                  </el-button>
                   <el-button link type="primary" @click="showUserLogs(row.username)">
                     查看日志
                   </el-button>
@@ -1611,6 +1663,104 @@ onMounted(loadAll);
           保存
         </el-button>
       </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="usageDetailVisible"
+      :title="`消费明细：${usageDetailUser?.username || ''}`"
+      width="920px"
+      :close-on-click-modal="false"
+      @closed="resetUsageDetail"
+    >
+      <div class="usage-detail-toolbar">
+        <span>统计周期</span>
+        <el-select v-model="usageDetailDays" @change="loadUsageDetail">
+          <el-option label="最近 7 天" :value="7" />
+          <el-option label="最近 30 天" :value="30" />
+          <el-option label="最近 90 天" :value="90" />
+          <el-option label="全部时间" :value="0" />
+        </el-select>
+      </div>
+
+      <div class="admin-metric-grid" v-loading="usageDetailLoading">
+        <div class="metric-card usage-metric-primary">
+          <span>总 Token</span>
+          <strong>{{ formatTokens(usageDetail.summary.total_tokens) }}</strong>
+          <small>筛选范围内累计消耗</small>
+        </div>
+        <div class="metric-card">
+          <span>总费用</span>
+          <strong>{{ formatCost(usageDetail.summary.cost) }}</strong>
+          <small>人民币</small>
+        </div>
+        <div class="metric-card">
+          <span>请求数</span>
+          <strong>{{ formatTokens(usageDetail.summary.requests) }}</strong>
+          <small>累计调用次数</small>
+        </div>
+        <div class="metric-card">
+          <span>活跃天数</span>
+          <strong>{{ usageDetail.summary.active_days || 0 }}</strong>
+          <small>发生调用的天数</small>
+        </div>
+      </div>
+
+      <section class="usage-section">
+        <div class="usage-section-heading">
+          <div>
+            <h3>各模型消费</h3>
+            <p>该用户按实际模型汇总的请求、Token 与费用。</p>
+          </div>
+        </div>
+        <el-table
+          :data="usageDetail.by_model"
+          v-loading="usageDetailLoading"
+          max-height="360"
+        >
+          <el-table-column prop="model" label="实际模型" min-width="160" />
+          <el-table-column prop="provider" label="Provider" min-width="110" />
+          <el-table-column prop="requests" label="请求" width="90" />
+          <el-table-column label="输入 / 输出" min-width="150">
+            <template #default="{ row }">
+              {{ formatTokens(row.input_tokens) }} / {{ formatTokens(row.output_tokens) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="总 Token" min-width="110" align="right">
+            <template #default="{ row }">{{ formatTokens(row.total_tokens) }}</template>
+          </el-table-column>
+          <el-table-column label="费用" min-width="110" align="right">
+            <template #default="{ row }">{{ formatCost(row.cost) }}</template>
+          </el-table-column>
+        </el-table>
+      </section>
+
+      <section class="usage-section">
+        <div class="usage-section-heading">
+          <div>
+            <h3>按天消费</h3>
+            <p>按北京时间自然日汇总的请求、Token 与费用。</p>
+          </div>
+        </div>
+        <el-table
+          :data="usageDetail.by_day"
+          v-loading="usageDetailLoading"
+          max-height="360"
+        >
+          <el-table-column prop="date" label="日期" min-width="120" />
+          <el-table-column prop="requests" label="请求" width="90" />
+          <el-table-column label="输入 / 输出" min-width="150">
+            <template #default="{ row }">
+              {{ formatTokens(row.input_tokens) }} / {{ formatTokens(row.output_tokens) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="总 Token" min-width="110" align="right">
+            <template #default="{ row }">{{ formatTokens(row.total_tokens) }}</template>
+          </el-table-column>
+          <el-table-column label="费用" min-width="110" align="right">
+            <template #default="{ row }">{{ formatCost(row.cost) }}</template>
+          </el-table-column>
+        </el-table>
+      </section>
     </el-dialog>
   </div>
 </template>

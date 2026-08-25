@@ -37,7 +37,7 @@ from app.utils.security import (
     hash_invite_code,
     hash_password,
 )
-from app.utils.time import beijing_iso, utc_now
+from app.utils.time import beijing_iso, to_beijing, utc_now
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -685,6 +685,121 @@ async def token_stats(
             }
             for row in by_provider_rows
         ],
+    }
+
+
+@router.get("/users/{user_id}/usage")
+async def user_usage_detail(
+    user_id: int,
+    _admin: Admin,
+    session: DbSession,
+    days: int = Query(default=30, ge=0, le=3660),
+) -> dict:
+    user = await session.get(User, user_id)
+    if user is None:
+        raise GatewayError("用户不存在", status_code=404, code="user_not_found")
+
+    since = utc_now() - timedelta(days=days) if days else None
+    statement = (
+        select(
+            UsageLog.request_time,
+            UsageLog.model,
+            UsageLog.provider,
+            UsageLog.input_tokens,
+            UsageLog.output_tokens,
+            UsageLog.total_tokens,
+            UsageLog.cost,
+            UsageLog.status,
+        )
+        .where(UsageLog.user_id == user_id)
+        .order_by(UsageLog.request_time)
+    )
+    if since is not None:
+        statement = statement.where(UsageLog.request_time >= since)
+    rows = await session.execute(statement)
+
+    by_model: dict[tuple[str, str], dict] = {}
+    by_day: dict[str, dict] = {}
+    for row in rows:
+        (
+            request_time,
+            model,
+            provider,
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            cost,
+            status,
+        ) = row
+        input_tokens = input_tokens or 0
+        output_tokens = output_tokens or 0
+        total_tokens = total_tokens or 0
+        cost_value = float(cost) if cost is not None else 0.0
+
+        model_bucket = by_model.setdefault(
+            (model, provider),
+            {
+                "model": model,
+                "provider": provider,
+                "requests": 0,
+                "success_requests": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "cost": 0.0,
+            },
+        )
+        model_bucket["requests"] += 1
+        if status == "success":
+            model_bucket["success_requests"] += 1
+        model_bucket["input_tokens"] += input_tokens
+        model_bucket["output_tokens"] += output_tokens
+        model_bucket["total_tokens"] += total_tokens
+        model_bucket["cost"] += cost_value
+
+        day = to_beijing(request_time).date().isoformat()
+        day_bucket = by_day.setdefault(
+            day,
+            {
+                "date": day,
+                "requests": 0,
+                "success_requests": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "cost": 0.0,
+            },
+        )
+        day_bucket["requests"] += 1
+        if status == "success":
+            day_bucket["success_requests"] += 1
+        day_bucket["input_tokens"] += input_tokens
+        day_bucket["output_tokens"] += output_tokens
+        day_bucket["total_tokens"] += total_tokens
+        day_bucket["cost"] += cost_value
+
+    by_model_list = sorted(
+        by_model.values(), key=lambda item: (-item["total_tokens"], item["model"])
+    )
+    by_day_list = sorted(by_day.values(), key=lambda item: item["date"])
+    for item in by_model_list:
+        item["cost"] = round(item["cost"], 6)
+    for item in by_day_list:
+        item["cost"] = round(item["cost"], 6)
+
+    return {
+        "days": days,
+        "user": {"id": user.id, "username": user.username},
+        "summary": {
+            "requests": sum(item["requests"] for item in by_day_list),
+            "input_tokens": sum(item["input_tokens"] for item in by_day_list),
+            "output_tokens": sum(item["output_tokens"] for item in by_day_list),
+            "total_tokens": sum(item["total_tokens"] for item in by_day_list),
+            "cost": round(sum(item["cost"] for item in by_day_list), 6),
+            "active_days": len(by_day_list),
+        },
+        "by_model": by_model_list,
+        "by_day": by_day_list,
     }
 
 

@@ -262,6 +262,14 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 }
 .log-filter-bar .el-input { grid-column: span 2; }
 .usage-filter-actions { display: flex; align-items: center; }
+.usage-detail-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.usage-detail-toolbar span { color: #667085; font-size: 13px; }
+.usage-detail-toolbar .el-select { width: 180px; }
 .admin-metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

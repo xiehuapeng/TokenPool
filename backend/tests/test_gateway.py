@@ -516,3 +516,83 @@ async def test_thinking_model_patches_reasoning_content(client):
         assert all("reasoning_content" not in m for m in plain_messages)
     finally:
         provider_registry._providers["deepseek"] = original_provider
+
+
+@pytest.mark.asyncio
+async def test_user_usage_detail_breakdown(client):
+    original_provider = provider_registry._providers["deepseek"]
+    fake_provider = FakeProvider()
+    provider_registry._providers["deepseek"] = fake_provider
+    try:
+        admin_token = await login(client, "admin", "admin-password")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        create_user = await client.post(
+            "/api/admin/users",
+            headers=admin_headers,
+            json={
+                "username": "usage-detail-user",
+                "password": "developer-password1",
+            },
+        )
+        assert create_user.status_code in (201, 409), create_user.text
+
+        users_list = (
+            await client.get("/api/admin/users", headers=admin_headers)
+        ).json()
+        user_id = next(
+            item["id"]
+            for item in users_list
+            if item["username"] == "usage-detail-user"
+        )
+
+        user_token = await login(client, "usage-detail-user", "developer-password1")
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        key = (
+            await client.post(
+                "/api/me/api-keys",
+                headers=user_headers,
+                json={"name": "usage-detail"},
+            )
+        ).json()["key"]
+
+        response = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}"},
+            json={
+                "model": "team-coding",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        detail = await client.get(
+            f"/api/admin/users/{user_id}/usage",
+            headers=admin_headers,
+            params={"days": 30},
+        )
+        assert detail.status_code == 200, detail.text
+        data = detail.json()
+        assert data["user"]["username"] == "usage-detail-user"
+        assert data["summary"]["requests"] >= 1
+        assert data["summary"]["total_tokens"] >= 6
+        assert data["summary"]["active_days"] >= 1
+        assert any(
+            item["model"] == "deepseek-v4-flash" for item in data["by_model"]
+        )
+        deepseek_row = next(
+            item for item in data["by_model"] if item["model"] == "deepseek-v4-flash"
+        )
+        assert deepseek_row["provider"] == "deepseek"
+        assert deepseek_row["total_tokens"] >= 6
+        assert isinstance(deepseek_row["cost"], (int, float))
+        assert data["by_day"]
+        assert all("date" in item for item in data["by_day"])
+
+        missing = await client.get(
+            "/api/admin/users/999999/usage",
+            headers=admin_headers,
+        )
+        assert missing.status_code == 404
+    finally:
+        provider_registry._providers["deepseek"] = original_provider
