@@ -1,12 +1,17 @@
 import asyncio
 from dataclasses import dataclass
+from datetime import timedelta
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ApiKey, User
 from app.utils.errors import GatewayError
 from app.utils.security import hash_api_key, verify_password
-from app.utils.time import utc_now
+from app.utils.time import to_utc, utc_now
+
+
+_LAST_USED_UPDATE_INTERVAL = timedelta(seconds=60)
 
 
 @dataclass(slots=True)
@@ -64,6 +69,10 @@ async def authenticate_api_key(
             error_type="authentication_error",
             code="api_key_expired",
         )
-    api_key.last_used_at = now
-    await session.commit()
+    if (
+        api_key.last_used_at is None
+        or (now - to_utc(api_key.last_used_at)) > _LAST_USED_UPDATE_INTERVAL
+    ):
+        api_key.last_used_at = now
+        await session.commit()
     return ApiPrincipal(user=user, api_key=api_key)

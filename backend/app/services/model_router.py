@@ -143,16 +143,22 @@ async def resolve_requested_model(
                 public_model=key_model.public_model,
             )
 
-    user = await session.get(User, user_id)
-    if user is None:
+    user_and_preferred = (
+        await session.execute(
+            select(User, ModelConfig)
+            .outerjoin(ModelConfig, ModelConfig.id == User.preferred_model_id)
+            .where(User.id == user_id)
+        )
+    ).one_or_none()
+    if user_and_preferred is None:
         raise GatewayError(
             "User does not exist",
             status_code=401,
             error_type="authentication_error",
             code="invalid_api_key",
         )
+    user, preferred = user_and_preferred
     if user.preferred_model_id is not None:
-        preferred = await session.get(ModelConfig, user.preferred_model_id)
         if preferred is None:
             raise GatewayError(
                 "The selected model no longer exists",
@@ -166,19 +172,41 @@ async def resolve_requested_model(
             public_model=preferred.public_model,
         )
 
-    permitted = await list_permitted_models(session, user_id=user_id)
-    if not permitted:
-        raise GatewayError(
-            "No model is available for this user",
-            status_code=403,
-            error_type="permission_error",
-            code="no_permitted_model",
-            param="model",
+    return await resolve_first_permitted_model(session, user_id=user_id)
+
+
+async def resolve_first_permitted_model(
+    session: AsyncSession, *, user_id: int
+) -> ModelRoute:
+    result = await session.execute(
+        select(ModelConfig, ProviderConfig, UserModelPermission.allowed)
+        .join(ProviderConfig, ProviderConfig.id == ModelConfig.provider_id)
+        .outerjoin(
+            UserModelPermission,
+            and_(
+                UserModelPermission.model_config_id == ModelConfig.id,
+                UserModelPermission.user_id == user_id,
+            ),
         )
-    return await resolve_model(
-        session,
-        user_id=user_id,
-        public_model=permitted[0].public_model,
+        .where(ModelConfig.enabled.is_(True), ProviderConfig.enabled.is_(True))
+        .order_by(ModelConfig.sort_order, ModelConfig.public_model)
+    )
+    for model, provider_config, explicit_allowed in result:
+        allowed = (
+            model.default_allowed if explicit_allowed is None else explicit_allowed
+        )
+        if allowed:
+            return ModelRoute(
+                model=model,
+                provider_config=provider_config,
+                provider=provider_registry.get(provider_config.code),
+            )
+    raise GatewayError(
+        "No model is available for this user",
+        status_code=403,
+        error_type="permission_error",
+        code="no_permitted_model",
+        param="model",
     )
 
 
