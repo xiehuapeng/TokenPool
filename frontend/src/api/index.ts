@@ -32,6 +32,7 @@ export interface AdminUsageFilters {
   username?: string;
   model?: string;
   provider?: string;
+  today?: boolean;
 }
 
 export interface AdminLogFilters extends AdminUsageFilters {
@@ -39,6 +40,7 @@ export interface AdminLogFilters extends AdminUsageFilters {
   offset?: number;
   request_id?: string;
   status?: string;
+  today?: boolean;
 }
 
 export const authApi = {

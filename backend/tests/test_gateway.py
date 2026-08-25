@@ -600,6 +600,22 @@ async def test_user_usage_detail_breakdown(client):
         assert today_data["summary"]["requests"] >= 1
         assert today_data["by_day"]
 
+        today_logs = await client.get(
+            "/api/admin/usage-logs",
+            headers=admin_headers,
+            params={"today": "true", "username": "usage-detail-user"},
+        )
+        assert today_logs.status_code == 200, today_logs.text
+        assert today_logs.json()["total"] >= 1
+
+        today_stats = await client.get(
+            "/api/admin/stats",
+            headers=admin_headers,
+            params={"today": "true"},
+        )
+        assert today_stats.status_code == 200, today_stats.text
+        assert today_stats.json()["summary"]["requests"] >= 1
+
         missing = await client.get(
             "/api/admin/users/999999/usage",
             headers=admin_headers,

@@ -39,7 +39,7 @@ const statsFilters = reactive({
   provider: "",
 });
 const logFilters = reactive({
-  days: 30,
+  days: "30",
   username: "",
   model: "",
   provider: "",
@@ -390,8 +390,10 @@ function buildUsageParams(filters: typeof statsFilters): AdminUsageFilters {
 }
 
 function buildLogParams(): AdminLogFilters {
+  const period = logFilters.days;
   return {
-    days: logFilters.days,
+    days: period === "today" ? undefined : Number(period),
+    today: period === "today" ? true : undefined,
     username: logFilters.username || undefined,
     model: logFilters.model || undefined,
     provider: logFilters.provider || undefined,
@@ -433,7 +435,7 @@ async function applyStatsFilters() {
 
 async function resetStatsFilters() {
   Object.assign(statsFilters, {
-    days: 30,
+    days: "30",
     username: "",
     model: "",
     provider: "",
@@ -504,7 +506,7 @@ async function applyLogFilters() {
 
 async function resetLogFilters() {
   Object.assign(logFilters, {
-    days: 30,
+    days: "30",
     username: "",
     model: "",
     provider: "",
@@ -517,7 +519,7 @@ async function resetLogFilters() {
 
 async function showUserLogs(username: string) {
   Object.assign(logFilters, {
-    days: statsFilters.days,
+    days: String(statsFilters.days),
     username,
     model: statsFilters.model,
     provider: statsFilters.provider,
@@ -1070,11 +1072,12 @@ onMounted(loadAll);
         <el-tab-pane label="Token 统计" name="stats">
           <div class="usage-filter-bar">
             <el-select v-model="statsFilters.days" class="usage-filter-period">
-              <el-option label="最近 24 小时" :value="1" />
-              <el-option label="最近 7 天" :value="7" />
-              <el-option label="最近 30 天" :value="30" />
-              <el-option label="最近 90 天" :value="90" />
-              <el-option label="全部时间" :value="0" />
+              <el-option label="今天" value="today" />
+              <el-option label="最近 24 小时" value="1" />
+              <el-option label="最近 7 天" value="7" />
+              <el-option label="最近 30 天" value="30" />
+              <el-option label="最近 90 天" value="90" />
+              <el-option label="全部时间" value="0" />
             </el-select>
             <el-select
               v-model="statsFilters.username"
@@ -1255,11 +1258,12 @@ onMounted(loadAll);
         <el-tab-pane :label="`调用日志 (${totalLogs})`" name="logs">
           <div class="usage-filter-bar log-filter-bar">
             <el-select v-model="logFilters.days" class="usage-filter-period">
-              <el-option label="最近 24 小时" :value="1" />
-              <el-option label="最近 7 天" :value="7" />
-              <el-option label="最近 30 天" :value="30" />
-              <el-option label="最近 90 天" :value="90" />
-              <el-option label="全部时间" :value="0" />
+              <el-option label="今天" value="today" />
+              <el-option label="最近 24 小时" value="1" />
+              <el-option label="最近 7 天" value="7" />
+              <el-option label="最近 30 天" value="30" />
+              <el-option label="最近 90 天" value="90" />
+              <el-option label="全部时间" value="0" />
             </el-select>
             <el-select v-model="logFilters.username" filterable clearable placeholder="全部用户">
               <el-option

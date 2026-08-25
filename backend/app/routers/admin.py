@@ -499,11 +499,17 @@ async def token_stats(
     username: str | None = None,
     model: str | None = None,
     provider: str | None = None,
+    today: bool = Query(default=False),
 ) -> dict:
-    since = utc_now() - timedelta(days=days) if days else None
     conditions = []
-    if since is not None:
-        conditions.append(UsageLog.request_time >= since)
+    if today:
+        day_start = beijing_day_start_utc()
+        conditions.append(UsageLog.request_time >= day_start)
+        conditions.append(UsageLog.request_time < day_start + timedelta(days=1))
+    else:
+        since = utc_now() - timedelta(days=days) if days else None
+        if since is not None:
+            conditions.append(UsageLog.request_time >= since)
     if username:
         conditions.append(User.username == username)
     if model:
@@ -824,6 +830,7 @@ async def usage_logs(
     provider: str | None = None,
     request_id: str | None = None,
     log_status: str | None = Query(default=None, alias="status"),
+    today: bool = Query(default=False),
 ) -> dict:
     statement = (
         select(UsageLog, User)
@@ -834,7 +841,11 @@ async def usage_logs(
         User, User.id == UsageLog.user_id
     )
     conditions = []
-    if days:
+    if today:
+        day_start = beijing_day_start_utc()
+        conditions.append(UsageLog.request_time >= day_start)
+        conditions.append(UsageLog.request_time < day_start + timedelta(days=1))
+    elif days:
         conditions.append(UsageLog.request_time >= utc_now() - timedelta(days=days))
     if username:
         conditions.append(User.username == username)
