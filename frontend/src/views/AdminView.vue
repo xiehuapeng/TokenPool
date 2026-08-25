@@ -295,6 +295,82 @@ async function setModelEnabled(row: any, enabled: boolean) {
   }
 }
 
+const pricingDialogVisible = ref(false);
+const pricingSaving = ref(false);
+const pricingModel = ref<any>(null);
+const pricingForm = reactive({
+  input_price: null as number | null,
+  cached_input_price: null as number | null,
+  output_price: null as number | null,
+  peak_input_price: null as number | null,
+  peak_cached_input_price: null as number | null,
+  peak_output_price: null as number | null,
+  tier_threshold_tokens: null as number | null,
+  high_input_price: null as number | null,
+  high_cached_input_price: null as number | null,
+  high_output_price: null as number | null,
+  enabled: true,
+});
+
+function openPricingDialog(row: any) {
+  pricingModel.value = row;
+  const pricing = row.pricing;
+  Object.assign(pricingForm, {
+    input_price: pricing?.input_price ?? null,
+    cached_input_price: pricing?.cached_input_price ?? null,
+    output_price: pricing?.output_price ?? null,
+    peak_input_price: pricing?.peak_input_price ?? null,
+    peak_cached_input_price: pricing?.peak_cached_input_price ?? null,
+    peak_output_price: pricing?.peak_output_price ?? null,
+    tier_threshold_tokens: pricing?.tier_threshold_tokens ?? null,
+    high_input_price: pricing?.high_input_price ?? null,
+    high_cached_input_price: pricing?.high_cached_input_price ?? null,
+    high_output_price: pricing?.high_output_price ?? null,
+    enabled: pricing ? pricing.enabled : true,
+  });
+  pricingDialogVisible.value = true;
+}
+
+async function savePricing() {
+  if (
+    pricingForm.input_price == null ||
+    pricingForm.cached_input_price == null ||
+    pricingForm.output_price == null
+  ) {
+    ElMessage.warning("输入 / 缓存命中 / 输出单价为必填项");
+    return;
+  }
+  const hasHighPrice =
+    pricingForm.high_input_price != null ||
+    pricingForm.high_cached_input_price != null ||
+    pricingForm.high_output_price != null;
+  if (hasHighPrice && pricingForm.tier_threshold_tokens == null) {
+    ElMessage.warning("已填写超长上下文单价，请同时设置阈值（输入 Token 数）");
+    return;
+  }
+  if (
+    pricingForm.tier_threshold_tokens != null &&
+    pricingForm.high_input_price == null
+  ) {
+    ElMessage.warning("已设置阈值，请至少填写超长上下文输入单价");
+    return;
+  }
+  pricingSaving.value = true;
+  try {
+    await adminApi.updateModelPricing(pricingModel.value.id, {
+      ...pricingForm,
+    });
+    pricingDialogVisible.value = false;
+    ElMessage.success("模型定价已保存");
+    const response = await adminApi.models();
+    models.value = response.data;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    pricingSaving.value = false;
+  }
+}
+
 function buildUsageParams(filters: typeof statsFilters): AdminUsageFilters {
   return {
     days: filters.days,
@@ -356,6 +432,62 @@ async function resetStatsFilters() {
   await loadStats();
 }
 
+const backfillLoading = ref(false);
+
+async function backfillUsageCosts() {
+  let previewData: any;
+  try {
+    const preview = await adminApi.backfillCosts(true);
+    previewData = preview.data;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+    return;
+  }
+  if (!previewData.updated) {
+    ElMessage.info("没有需要回填费用的历史日志");
+    return;
+  }
+  const rates = Object.entries(previewData.model_cache_hit_rates || {})
+    .map(([model, rate]) => `${model} ${(Number(rate) * 100).toFixed(1)}%`)
+    .join("；");
+  const globalRate =
+    previewData.global_cache_hit_rate != null
+      ? `；无自身数据模型按全局平均 ${(Number(previewData.global_cache_hit_rate) * 100).toFixed(1)}% 推算`
+      : "";
+  try {
+    await ElMessageBox.confirm(
+      `预览（未落库）：将回填 ${previewData.updated} 条历史日志，估算总费用 ¥${Number(
+        previewData.total_estimated_cost
+      ).toFixed(4)}` +
+        (rates ? `。各模型平均缓存命中率：${rates}${globalRate}` : "") +
+        "。回填后的费用会标记为「回填估算」，是否执行？",
+      "历史费用回填",
+      {
+        confirmButtonText: "执行回填",
+        cancelButtonText: "取消",
+        type: "warning",
+      }
+    );
+  } catch {
+    return;
+  }
+  backfillLoading.value = true;
+  try {
+    const response = await adminApi.backfillCosts(false);
+    const data = response.data;
+    ElMessage.success(
+      `已回填 ${data.updated} 条历史日志，估算总费用 ¥${Number(
+        data.total_estimated_cost
+      ).toFixed(4)}`
+    );
+    await Promise.all([loadStats(), loadLogs()]);
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    backfillLoading.value = false;
+  }
+}
+
 async function applyLogFilters() {
   logPage.value = 1;
   await loadLogs();
@@ -395,6 +527,54 @@ async function changeLogPage(page: number) {
 
 function formatTokens(value: unknown) {
   return Number(value || 0).toLocaleString();
+}
+
+function formatCost(value: unknown) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num === 0) return "¥0.00";
+  if (num < 0.01) return `¥${num.toFixed(6)}`;
+  if (num < 1) return `¥${num.toFixed(4)}`;
+  return `¥${num.toFixed(2)}`;
+}
+
+function formatPrice(value: unknown) {
+  if (value == null) return "—";
+  const num = Number(value);
+  return Number.isFinite(num) ? String(num) : "—";
+}
+
+function costSourceLabel(source: unknown) {
+  if (source === "realtime") return "请求完成时实时计价";
+  if (source === "estimated") return "回填估算";
+  if (source === "bill_allocated") return "厂商账单分摊";
+  return String(source || "—");
+}
+
+function formatPriceDetail(detail: any) {
+  if (!detail) return "—";
+  const parts = [
+    `输入 ${formatPrice(detail.input_price)}`,
+    `缓存 ${formatPrice(detail.cached_input_price)}`,
+    `输出 ${formatPrice(detail.output_price)}`,
+    "元/百万Token",
+  ];
+  if (detail.tier === "high") parts.push("超长上下文档");
+  if (detail.peak) parts.push("峰时");
+  if (detail.estimated) {
+    let label = "估算值";
+    if (detail.cache_hit_rate != null) {
+      const ratePercent = (Number(detail.cache_hit_rate) * 100).toFixed(1);
+      const basis = detail.cache_rate_basis === "global_avg"
+        ? "全局平均"
+        : detail.cache_rate_basis === "provider_bill_day"
+          ? "厂商当日账单"
+          : "该模型平均";
+      label += `（缓存按${basis}命中率 ${ratePercent}% 推算）`;
+    }
+    if (detail.bill_allocated) label = `厂商账单按Token比例分摊（${label}）`;
+    parts.push(label);
+  }
+  return parts.join(" · ");
 }
 
 function userSuccessRate(row: any) {
@@ -752,12 +932,68 @@ onMounted(loadAll);
                     {{ row.default_allowed ? "是" : "否" }}
                   </template>
                 </el-table-column>
+                <el-table-column label="单价（元/百万Token）" min-width="240">
+                  <template #default="{ row }">
+                    <template v-if="row.pricing">
+                      <div class="model-price-line">
+                        输入 {{ formatPrice(row.pricing.input_price) }} · 缓存命中
+                        {{ formatPrice(row.pricing.cached_input_price) }} · 输出
+                        {{ formatPrice(row.pricing.output_price) }}
+                      </div>
+                      <div
+                        v-if="
+                          row.pricing.peak_input_price != null ||
+                          row.pricing.tier_threshold_tokens != null ||
+                          !row.pricing.enabled
+                        "
+                        class="model-price-tags"
+                      >
+                        <el-tag
+                          v-if="row.pricing.peak_input_price != null"
+                          size="small"
+                          effect="plain"
+                        >
+                          峰谷计价
+                        </el-tag>
+                        <el-tag
+                          v-if="row.pricing.tier_threshold_tokens != null"
+                          size="small"
+                          effect="plain"
+                        >
+                          超长上下文加价
+                        </el-tag>
+                        <el-tag
+                          v-if="!row.pricing.enabled"
+                          size="small"
+                          type="info"
+                          effect="plain"
+                        >
+                          计价停用
+                        </el-tag>
+                      </div>
+                    </template>
+                    <el-tag v-else size="small" type="warning" effect="plain">
+                      未配置计价
+                    </el-tag>
+                  </template>
+                </el-table-column>
                 <el-table-column label="启用" width="90">
                   <template #default="{ row }">
                     <el-switch
                       v-model="row.enabled"
                       @change="(value) => setModelEnabled(row, Boolean(value))"
                     />
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="100" fixed="right">
+                  <template #default="{ row }">
+                    <el-button
+                      link
+                      type="primary"
+                      @click="openPricingDialog(row)"
+                    >
+                      编辑单价
+                    </el-button>
                   </template>
                 </el-table-column>
               </el-table>
@@ -833,6 +1069,12 @@ onMounted(loadAll);
                 查询
               </el-button>
               <el-button @click="resetStatsFilters">重置</el-button>
+              <el-button
+                :loading="backfillLoading"
+                @click="backfillUsageCosts"
+              >
+                历史费用回填
+              </el-button>
             </div>
           </div>
 
@@ -841,6 +1083,11 @@ onMounted(loadAll);
               <span>总 Token</span>
               <strong>{{ formatTokens(stats.summary.total_tokens) }}</strong>
               <small>筛选范围内累计消耗</small>
+            </div>
+            <div class="metric-card">
+              <span>总费用</span>
+              <strong>{{ formatCost(stats.summary.cost) }}</strong>
+              <small>按请求时定价快照计算（人民币）</small>
             </div>
             <div class="metric-card">
               <span>输入 Token</span>
@@ -896,6 +1143,9 @@ onMounted(loadAll);
                   {{ formatTokens(row.input_tokens) }} / {{ formatTokens(row.output_tokens) }}
                 </template>
               </el-table-column>
+              <el-table-column label="费用" min-width="115" sortable prop="cost">
+                <template #default="{ row }">{{ formatCost(row.cost) }}</template>
+              </el-table-column>
               <el-table-column prop="requests" label="请求数" width="100" sortable />
               <el-table-column label="成功率" width="105">
                 <template #default="{ row }">{{ userSuccessRate(row) }}%</template>
@@ -940,6 +1190,9 @@ onMounted(loadAll);
                 <el-table-column prop="requests" label="请求" width="75" />
                 <el-table-column label="Token" min-width="110" align="right">
                   <template #default="{ row }">{{ formatTokens(row.total_tokens) }}</template>
+                </el-table-column>
+                <el-table-column label="费用" min-width="100" align="right">
+                  <template #default="{ row }">{{ formatCost(row.cost) }}</template>
                 </el-table-column>
               </el-table>
             </section>
@@ -1009,6 +1262,16 @@ onMounted(loadAll);
                   <span>调用方式</span><span>{{ row.stream ? "SSE 流式" : "非流式" }}</span>
                   <span>HTTP 状态</span><span>{{ row.http_status ?? "—" }}</span>
                   <span>Usage 来源</span><span>{{ row.usage_source || "—" }}</span>
+                  <span>缓存命中 Token</span><span>{{ row.cached_input_tokens ?? "—" }}</span>
+                  <span>推理 Token</span><span>{{ row.reasoning_tokens ?? "—" }}</span>
+                  <span>费用</span>
+                  <span>
+                    {{ row.cost != null ? formatCost(row.cost) : "—" }}
+                    <template v-if="row.cost != null">
+                      （{{ costSourceLabel(row.cost_source) }}）
+                    </template>
+                  </span>
+                  <span>计价明细</span><span>{{ formatPriceDetail(row.price_detail) }}</span>
                   <span>错误信息</span><span>{{ row.error_message || row.error_code || "—" }}</span>
                 </div>
               </template>
@@ -1029,6 +1292,11 @@ onMounted(loadAll);
             </el-table-column>
             <el-table-column label="总 Token" min-width="105" align="right">
               <template #default="{ row }">{{ formatTokens(row.total_tokens) }}</template>
+            </el-table-column>
+            <el-table-column label="费用" min-width="110" align="right">
+              <template #default="{ row }">
+                {{ row.cost != null ? formatCost(row.cost) : "—" }}
+              </template>
             </el-table-column>
             <el-table-column label="状态" width="120">
               <template #default="{ row }">
@@ -1209,6 +1477,138 @@ onMounted(loadAll);
           @click="syncProviderModels"
         >
           同步所选模型
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="pricingDialogVisible"
+      :title="`编辑定价：${pricingModel?.public_model || ''}`"
+      width="680px"
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        title="单价单位为 元/百万Token。修改只影响之后的请求，历史记录的费用不变；留空表示清除该项。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="admin-alert"
+      />
+      <el-form label-position="top" class="pricing-form">
+        <div class="pricing-form-grid">
+          <el-form-item label="输入单价（必填）">
+            <el-input-number
+              v-model="pricingForm.input_price"
+              :min="0"
+              :step="0.5"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+          <el-form-item label="缓存命中单价（必填）">
+            <el-input-number
+              v-model="pricingForm.cached_input_price"
+              :min="0"
+              :step="0.1"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+          <el-form-item label="输出单价（必填）">
+            <el-input-number
+              v-model="pricingForm.output_price"
+              :min="0"
+              :step="0.5"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+        </div>
+        <div class="pricing-form-section-title">
+          峰时单价（可选，适用于分峰谷计价的模型：北京时间工作日 9–12 点、14–18 点）
+        </div>
+        <div class="pricing-form-grid">
+          <el-form-item label="峰时输入">
+            <el-input-number
+              v-model="pricingForm.peak_input_price"
+              :min="0"
+              :step="0.5"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+          <el-form-item label="峰时缓存命中">
+            <el-input-number
+              v-model="pricingForm.peak_cached_input_price"
+              :min="0"
+              :step="0.1"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+          <el-form-item label="峰时输出">
+            <el-input-number
+              v-model="pricingForm.peak_output_price"
+              :min="0"
+              :step="0.5"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+        </div>
+        <div class="pricing-form-section-title">
+          超长上下文加价档（可选：输入 Token 超过阈值时按本档单价计费）
+        </div>
+        <div class="pricing-form-grid">
+          <el-form-item label="阈值（输入 Token）">
+            <el-input-number
+              v-model="pricingForm.tier_threshold_tokens"
+              :min="1"
+              :step="1000"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+          <el-form-item label="加价档输入">
+            <el-input-number
+              v-model="pricingForm.high_input_price"
+              :min="0"
+              :step="0.5"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+          <el-form-item label="加价档缓存命中">
+            <el-input-number
+              v-model="pricingForm.high_cached_input_price"
+              :min="0"
+              :step="0.1"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+        </div>
+        <div class="pricing-form-grid">
+          <el-form-item label="加价档输出">
+            <el-input-number
+              v-model="pricingForm.high_output_price"
+              :min="0"
+              :step="0.5"
+              controls-position="right"
+              class="pricing-input"
+            />
+          </el-form-item>
+        </div>
+        <el-form-item>
+          <el-checkbox v-model="pricingForm.enabled">
+            启用该定价（取消勾选后不再计算费用）
+          </el-checkbox>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pricingDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="pricingSaving" @click="savePricing">
+          保存
         </el-button>
       </template>
     </el-dialog>

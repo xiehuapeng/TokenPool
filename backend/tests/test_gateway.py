@@ -289,7 +289,12 @@ async def test_openai_compatible_non_stream_and_stream(client):
             },
         )
         assert filtered_stats.status_code == 200
-        assert filtered_stats.json()["summary"] == {
+        stats_summary = filtered_stats.json()["summary"]
+        assert isinstance(stats_summary["cost"], float)
+        # 峰时/谷时单价不同，cost 随运行时段在 0.00003~0.00006 之间
+        assert 0 < stats_summary["cost"] <= 0.0001
+        del stats_summary["cost"]
+        assert stats_summary == {
             "requests": 2,
             "success_requests": 2,
             "failed_requests": 0,

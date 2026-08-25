@@ -23,4 +23,7 @@ class ModelConfig(TimestampMixin, Base):
     sort_order: Mapped[int] = mapped_column(default=0)
 
     provider: Mapped["ProviderConfig"] = relationship(back_populates="models")
+    pricing: Mapped["ModelPricing"] = relationship(
+        back_populates="model_config", uselist=False
+    )
 

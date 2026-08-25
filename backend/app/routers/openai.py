@@ -104,6 +104,7 @@ async def chat_completions(
                 http_status=result.http_status,
                 usage=result.data.get("usage"),
                 upstream_request_id=result.upstream_request_id,
+                model_config_id=route.model.id,
             )
             response.headers["X-Request-ID"] = request_id
             return result.data
@@ -115,6 +116,7 @@ async def chat_completions(
                 http_status=exc.status_code,
                 error_code=exc.code,
                 error_message=exc.message,
+                model_config_id=route.model.id,
             )
             exc.headers["X-Request-ID"] = request_id
             raise
@@ -133,6 +135,7 @@ async def chat_completions(
             http_status=exc.status_code,
             error_code=exc.code,
             error_message=exc.message,
+            model_config_id=route.model.id,
         )
         exc.headers["X-Request-ID"] = request_id
         raise
@@ -195,6 +198,7 @@ async def chat_completions(
                         error_code="stream_interrupted" if failure else None,
                         error_message=str(failure) if failure else None,
                         upstream_request_id=upstream.upstream_request_id,
+                        model_config_id=route.model.id,
                     )
 
             await run_cancellation_safe_cleanup(

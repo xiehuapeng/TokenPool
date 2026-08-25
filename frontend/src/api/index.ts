@@ -91,6 +91,8 @@ export const adminApi = {
   models: () => http.get("/api/admin/models"),
   updateModel: (id: number, body: object) =>
     http.patch(`/api/admin/models/${id}`, body),
+  updateModelPricing: (id: number, body: object) =>
+    http.patch(`/api/admin/models/${id}/pricing`, body),
   providers: () => http.get("/api/admin/providers"),
   providerModels: (code: string) =>
     http.get(`/api/admin/providers/${code}/available-models`),
@@ -100,4 +102,8 @@ export const adminApi = {
     http.get("/api/admin/stats", { params }),
   logs: (params: AdminLogFilters = {}) =>
     http.get("/api/admin/usage-logs", { params }),
+  backfillCosts: (dryRun = false) =>
+    http.post("/api/admin/usage-logs/backfill-costs", null, {
+      params: { dry_run: dryRun },
+    }),
 };

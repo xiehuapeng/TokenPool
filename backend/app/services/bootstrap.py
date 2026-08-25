@@ -1,12 +1,154 @@
+from decimal import Decimal
+
 from sqlalchemy import delete, select, update
 
 from app.config.settings import get_settings
 from app.database.session import SessionLocal
-from app.models import ModelConfig, ProviderConfig, User, UserModelPermission
+from app.models import ModelConfig, ModelPricing, ProviderConfig, User, UserModelPermission
 from app.utils.security import hash_password
+from app.utils.time import utc_now
 
 
 VISION_CAPABLE_MODELS = {"qwen3.8-max", "kimi-k3"}
+
+SEED_PRICINGS: dict[str, dict] = {
+    "deepseek-v4-flash": {
+        "input_price": Decimal("1.5"),
+        "cached_input_price": Decimal("0.05"),
+        "output_price": Decimal("4.5"),
+        "peak_input_price": Decimal("3"),
+        "peak_cached_input_price": Decimal("0.1"),
+        "peak_output_price": Decimal("9"),
+        "note": "DeepSeek官网价，非高峰档；工作日9-12/14-18（北京时间）高峰翻倍",
+    },
+    "deepseek-v4-pro": {
+        "input_price": Decimal("4.5"),
+        "cached_input_price": Decimal("0.15"),
+        "output_price": Decimal("13.5"),
+        "peak_input_price": Decimal("9"),
+        "peak_cached_input_price": Decimal("0.3"),
+        "peak_output_price": Decimal("27"),
+        "note": "DeepSeek官网价，非高峰档；工作日9-12/14-18（北京时间）高峰翻倍",
+    },
+    "glm-5.3": {
+        "input_price": Decimal("8"),
+        "cached_input_price": Decimal("2"),
+        "output_price": Decimal("28"),
+        "note": "智谱官网价，不分档",
+    },
+    "glm-5.2": {
+        "input_price": Decimal("8"),
+        "cached_input_price": Decimal("2"),
+        "output_price": Decimal("28"),
+        "note": "智谱官网价，不分档",
+    },
+    "glm-5.1": {
+        "input_price": Decimal("6"),
+        "cached_input_price": Decimal("1.3"),
+        "output_price": Decimal("24"),
+        "tier_threshold_tokens": 32768,
+        "high_input_price": Decimal("8"),
+        "high_cached_input_price": Decimal("2"),
+        "high_output_price": Decimal("28"),
+        "note": "智谱官网价，输入≤32K/＞32K两档",
+    },
+    "glm-5": {
+        "input_price": Decimal("4"),
+        "cached_input_price": Decimal("1"),
+        "output_price": Decimal("18"),
+        "tier_threshold_tokens": 32768,
+        "high_input_price": Decimal("6"),
+        "high_cached_input_price": Decimal("1.5"),
+        "high_output_price": Decimal("22"),
+        "note": "智谱官网价，输入≤32K/＞32K两档",
+    },
+    "glm-5-turbo": {
+        "input_price": Decimal("5"),
+        "cached_input_price": Decimal("1.2"),
+        "output_price": Decimal("22"),
+        "tier_threshold_tokens": 32768,
+        "high_input_price": Decimal("7"),
+        "high_cached_input_price": Decimal("1.8"),
+        "high_output_price": Decimal("26"),
+        "note": "智谱官网价，输入≤32K/＞32K两档",
+    },
+    "glm-4.7": {
+        "input_price": Decimal("3"),
+        "cached_input_price": Decimal("0.6"),
+        "output_price": Decimal("14"),
+        "tier_threshold_tokens": 32768,
+        "high_input_price": Decimal("4"),
+        "high_cached_input_price": Decimal("0.8"),
+        "high_output_price": Decimal("16"),
+        "note": "智谱官网价；输入≤32K且输出＜0.2K另有2/8/0.4档，未细分",
+    },
+    "glm-4.6": {
+        "input_price": Decimal("5"),
+        "cached_input_price": Decimal("1"),
+        "output_price": Decimal("5"),
+        "note": "输入/输出为官方价；缓存命中价官方未公布，按惯例约20%估为1元",
+    },
+    "glm-4.5": {
+        "input_price": Decimal("0.8"),
+        "cached_input_price": Decimal("0.16"),
+        "output_price": Decimal("2"),
+        "tier_threshold_tokens": 32768,
+        "high_input_price": Decimal("1"),
+        "high_cached_input_price": Decimal("0.2"),
+        "high_output_price": Decimal("4"),
+        "note": "智谱官网价；高档取(32K,128K]档，输入＞128K实际为2/0.4/6",
+    },
+    "glm-4.5-air": {
+        "input_price": Decimal("0.8"),
+        "cached_input_price": Decimal("0.16"),
+        "output_price": Decimal("6"),
+        "tier_threshold_tokens": 32768,
+        "high_input_price": Decimal("1.2"),
+        "high_cached_input_price": Decimal("0.24"),
+        "high_output_price": Decimal("8"),
+        "note": "智谱官网价；输出＜0.2K时输出价为2元档，未细分",
+    },
+    "kimi-k3": {
+        "input_price": Decimal("20"),
+        "cached_input_price": Decimal("2"),
+        "output_price": Decimal("100"),
+        "note": "Moonshot官网价（国内站），不分档",
+    },
+    "kimi-k2.7-code": {
+        "input_price": Decimal("6.5"),
+        "cached_input_price": Decimal("1.3"),
+        "output_price": Decimal("27"),
+        "note": "Moonshot官网价（国内站），不分档",
+    },
+    "kimi-k2.7-code-highspeed": {
+        "input_price": Decimal("13"),
+        "cached_input_price": Decimal("2.6"),
+        "output_price": Decimal("54"),
+        "note": "Moonshot官网价（国内站），不分档",
+    },
+    "qwen3.8-max": {
+        "input_price": Decimal("12"),
+        "cached_input_price": Decimal("1.5"),
+        "output_price": Decimal("36"),
+        "note": "阿里云百炼官网价（北京地域），不分档",
+    },
+    "qwen3.7-max": {
+        "input_price": Decimal("6"),
+        "cached_input_price": Decimal("1.2"),
+        "output_price": Decimal("18"),
+        "note": "阿里云百炼限时5折价（北京地域，输入/输出/缓存同折），原价12/2.4/36，官方未公布折扣截止时间",
+    },
+    "qwen3.7-plus": {
+        "input_price": Decimal("1.6"),
+        "cached_input_price": Decimal("0.32"),
+        "output_price": Decimal("6.4"),
+        "tier_threshold_tokens": 262144,
+        "high_input_price": Decimal("4.8"),
+        "high_cached_input_price": Decimal("0.96"),
+        "high_output_price": Decimal("19.2"),
+        "note": "阿里云百炼限时8折价（北京地域，输入/输出/缓存同折），原价2/0.4/8、>256K档6/1.2/24，官方未公布折扣截止时间",
+    },
+}
 
 
 async def seed_initial_data() -> None:
@@ -264,6 +406,28 @@ async def seed_initial_data() -> None:
                 )
             )
             await session.delete(retired_kimi)
+
+        # 定价种子：仅首次插入，已存在（含管理员改过的）不覆盖。
+        for public_model, pricing_data in SEED_PRICINGS.items():
+            model = await session.scalar(
+                select(ModelConfig).where(ModelConfig.public_model == public_model)
+            )
+            if model is None:
+                continue
+            existing_pricing = await session.scalar(
+                select(ModelPricing).where(
+                    ModelPricing.model_config_id == model.id
+                )
+            )
+            if existing_pricing is not None:
+                continue
+            session.add(
+                ModelPricing(
+                    model_config_id=model.id,
+                    effective_at=utc_now(),
+                    **pricing_data,
+                )
+            )
 
         admin_password = settings.admin_password.get_secret_value()
         if admin_password:

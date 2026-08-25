@@ -7,11 +7,20 @@ from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.dependencies import DbSession, admin_user
-from app.models import ApiKey, InviteCode, ModelConfig, ProviderConfig, UsageLog, User
+from app.models import (
+    ApiKey,
+    InviteCode,
+    ModelConfig,
+    ModelPricing,
+    ProviderConfig,
+    UsageLog,
+    User,
+)
 from app.schemas.admin import (
     InviteCodeCreate,
     InviteCodeStatusUpdate,
     KeyStatusUpdate,
+    ModelPricingUpdate,
     ModelUpdate,
     ProviderModelSync,
     UserCreate,
@@ -20,6 +29,7 @@ from app.schemas.admin import (
 from app.schemas.api_key import SecretReveal
 from app.providers.registry import provider_registry
 from app.services.model_sync import record_provider_model_discovery
+from app.services.usage_service import backfill_usage_costs
 from app.utils.errors import GatewayError
 from app.utils.secret_store import decrypt_secret, encrypt_secret
 from app.utils.security import (
@@ -253,11 +263,37 @@ async def update_key_status(
     return {"id": key.id, "status": key.status}
 
 
+def _pricing_payload(pricing: ModelPricing | None) -> dict | None:
+    if pricing is None:
+        return None
+
+    def _num(value) -> float | None:
+        return float(value) if value is not None else None
+
+    return {
+        "id": pricing.id,
+        "input_price": _num(pricing.input_price),
+        "cached_input_price": _num(pricing.cached_input_price),
+        "output_price": _num(pricing.output_price),
+        "peak_input_price": _num(pricing.peak_input_price),
+        "peak_cached_input_price": _num(pricing.peak_cached_input_price),
+        "peak_output_price": _num(pricing.peak_output_price),
+        "tier_threshold_tokens": pricing.tier_threshold_tokens,
+        "high_input_price": _num(pricing.high_input_price),
+        "high_cached_input_price": _num(pricing.high_cached_input_price),
+        "high_output_price": _num(pricing.high_output_price),
+        "currency": pricing.currency,
+        "enabled": pricing.enabled,
+        "note": pricing.note,
+    }
+
+
 @router.get("/models")
 async def list_models(_admin: Admin, session: DbSession) -> list[dict]:
     rows = await session.execute(
-        select(ModelConfig, ProviderConfig)
+        select(ModelConfig, ProviderConfig, ModelPricing)
         .join(ProviderConfig)
+        .outerjoin(ModelPricing, ModelPricing.model_config_id == ModelConfig.id)
         .order_by(ModelConfig.sort_order, ModelConfig.public_model)
     )
     return [
@@ -277,8 +313,9 @@ async def list_models(_admin: Admin, session: DbSession) -> list[dict]:
             "official_synced_at": (model.capabilities or {}).get(
                 "official_synced_at"
             ),
+            "pricing": _pricing_payload(pricing),
         }
-        for model, provider in rows
+        for model, provider, pricing in rows
     ]
 
 
@@ -293,6 +330,54 @@ async def update_model(
         setattr(model, field, value)
     await session.commit()
     return {"id": model.id, "enabled": model.enabled}
+
+
+PRICING_NULLABLE_FIELDS = frozenset(
+    {
+        "peak_input_price",
+        "peak_cached_input_price",
+        "peak_output_price",
+        "tier_threshold_tokens",
+        "high_input_price",
+        "high_cached_input_price",
+        "high_output_price",
+        "note",
+    }
+)
+
+
+@router.patch("/models/{model_id}/pricing")
+async def update_model_pricing(
+    model_id: int, body: ModelPricingUpdate, _admin: Admin, session: DbSession
+) -> dict:
+    model = await session.get(ModelConfig, model_id)
+    if model is None:
+        raise GatewayError("模型不存在", status_code=404, code="model_not_found")
+    pricing = await session.scalar(
+        select(ModelPricing).where(ModelPricing.model_config_id == model.id)
+    )
+    created = pricing is None
+    if created:
+        pricing = ModelPricing(
+            model_config_id=model.id, effective_at=utc_now(), enabled=True
+        )
+        session.add(pricing)
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        if value is None and field not in PRICING_NULLABLE_FIELDS:
+            raise GatewayError(
+                f"字段 {field} 不允许为空",
+                status_code=400,
+                code="pricing_field_not_nullable",
+            )
+        setattr(pricing, field, value)
+    await session.commit()
+    await session.refresh(pricing)
+    return {
+        "id": model.id,
+        "created": created,
+        "pricing": _pricing_payload(pricing),
+    }
 
 
 @router.get("/providers")
@@ -435,6 +520,7 @@ async def token_stats(
         func.sum(case((UsageLog.status == "failed", 1), else_=0)),
         func.count(func.distinct(UsageLog.user_id)),
         func.count(func.distinct(UsageLog.model)),
+        func.coalesce(func.sum(UsageLog.cost), 0),
     ).join(User, User.id == UsageLog.user_id)
     if conditions:
         summary_statement = summary_statement.where(*conditions)
@@ -451,6 +537,7 @@ async def token_stats(
             func.count(func.distinct(UsageLog.model)),
             func.count(func.distinct(UsageLog.provider)),
             func.max(UsageLog.request_time),
+            func.coalesce(func.sum(UsageLog.cost), 0),
         )
         .join(User, User.id == UsageLog.user_id)
         .group_by(User.username)
@@ -472,6 +559,7 @@ async def token_stats(
             "models_used": row[6],
             "providers_used": row[7],
             "last_request_time": beijing_iso(row[8]),
+            "cost": float(row[9] or 0),
         }
         for row in by_user_rows
     }
@@ -492,6 +580,7 @@ async def token_stats(
                 "models_used": 0,
                 "providers_used": 0,
                 "last_request_time": None,
+                "cost": 0.0,
             },
         )
         for item in all_usernames
@@ -507,6 +596,7 @@ async def token_stats(
             func.coalesce(func.sum(UsageLog.total_tokens), 0),
             func.count(func.distinct(UsageLog.user_id)),
             func.sum(case((UsageLog.status == "success", 1), else_=0)),
+            func.coalesce(func.sum(UsageLog.cost), 0),
         )
         .join(User, User.id == UsageLog.user_id)
         .group_by(UsageLog.model)
@@ -522,6 +612,7 @@ async def token_stats(
             func.count(UsageLog.id),
             func.coalesce(func.sum(UsageLog.total_tokens), 0),
             func.count(func.distinct(UsageLog.user_id)),
+            func.coalesce(func.sum(UsageLog.cost), 0),
         )
         .join(User, User.id == UsageLog.user_id)
         .group_by(UsageLog.provider)
@@ -564,6 +655,7 @@ async def token_stats(
             "total_tokens": summary[3],
             "active_users": summary[6],
             "models_used": summary[7],
+            "cost": float(summary[8] or 0),
         },
         "filter_options": {
             "models": filter_models,
@@ -579,6 +671,7 @@ async def token_stats(
                 "total_tokens": row[4],
                 "users": row[5],
                 "success_requests": row[6] or 0,
+                "cost": float(row[7] or 0),
             }
             for row in by_model_rows
         ],
@@ -588,6 +681,7 @@ async def token_stats(
                 "requests": row[1],
                 "total_tokens": row[2],
                 "users": row[3],
+                "cost": float(row[4] or 0),
             }
             for row in by_provider_rows
         ],
@@ -647,7 +741,12 @@ async def usage_logs(
                 "input_tokens": log.input_tokens,
                 "output_tokens": log.output_tokens,
                 "total_tokens": log.total_tokens,
+                "cached_input_tokens": log.cached_input_tokens,
+                "reasoning_tokens": log.reasoning_tokens,
                 "usage_source": log.usage_source,
+                "cost": float(log.cost) if log.cost is not None else None,
+                "cost_source": log.cost_source,
+                "price_detail": log.price_detail,
                 "status": log.status,
                 "http_status": log.http_status,
                 "latency_ms": log.latency_ms,
@@ -657,3 +756,15 @@ async def usage_logs(
             for log, user in rows
         ],
     }
+
+
+@router.post("/usage-logs/backfill-costs")
+async def run_usage_cost_backfill(
+    _admin: Admin,
+    dry_run: bool = Query(default=False),
+) -> dict:
+    """按模型平均缓存命中率推算历史日志费用，标记为 estimated。
+
+    dry_run=true 时仅预览将回填的数量与推算出的总费用，不落库。
+    """
+    return await backfill_usage_costs(dry_run=dry_run)

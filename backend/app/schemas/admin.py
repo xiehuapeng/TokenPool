@@ -1,6 +1,7 @@
 from typing import Literal
 
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -32,6 +33,22 @@ class ModelUpdate(BaseModel):
     enabled: bool | None = None
     default_allowed: bool | None = None
     sort_order: int | None = None
+
+
+class ModelPricingUpdate(BaseModel):
+    input_price: Decimal | None = Field(default=None, ge=0)
+    cached_input_price: Decimal | None = Field(default=None, ge=0)
+    output_price: Decimal | None = Field(default=None, ge=0)
+    peak_input_price: Decimal | None = Field(default=None, ge=0)
+    peak_cached_input_price: Decimal | None = Field(default=None, ge=0)
+    peak_output_price: Decimal | None = Field(default=None, ge=0)
+    tier_threshold_tokens: int | None = Field(default=None, ge=1)
+    high_input_price: Decimal | None = Field(default=None, ge=0)
+    high_cached_input_price: Decimal | None = Field(default=None, ge=0)
+    high_output_price: Decimal | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, max_length=8)
+    enabled: bool | None = None
+    note: str | None = Field(default=None, max_length=255)
 
 
 class InviteCodeCreate(BaseModel):

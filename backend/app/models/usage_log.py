@@ -1,6 +1,8 @@
 from datetime import datetime
+from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base
@@ -25,9 +27,14 @@ class UsageLog(Base):
     upstream_model: Mapped[str] = mapped_column(String(160))
     stream: Mapped[bool] = mapped_column(Boolean, default=False)
     input_tokens: Mapped[int | None] = mapped_column()
+    cached_input_tokens: Mapped[int | None] = mapped_column()
+    reasoning_tokens: Mapped[int | None] = mapped_column()
     output_tokens: Mapped[int | None] = mapped_column()
     total_tokens: Mapped[int | None] = mapped_column()
     usage_source: Mapped[str] = mapped_column(String(20), default="missing")
+    cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+    cost_source: Mapped[str | None] = mapped_column(String(20))
+    price_detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     request_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     first_token_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     response_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
