@@ -18,6 +18,7 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
 - 邀请码注册、账号密码登录、随机 API Key 生成与吊销
 - API Key 使用 HMAC 摘要认证，另存加密副本供本人登录后重复查看；失效时销毁
 - 用户个人用量；管理员按时间、用户、模型、Provider 筛选 Token 和调用日志
+- 管理员可按用户查看每个模型的消费明细，并支持按天（北京时间）查看时间序列
 - 调用日志包含输入/输出/总 Token、状态、延迟、流式类型和错误审计
 - 新请求记录缓存命中 Token 并实时计价；历史费用可按厂商日汇总账单分摊回填，
   原始 Token 数据不会被覆盖
@@ -226,6 +227,53 @@ PostgreSQL
 - `deploy/tokenpool.service`
 - `deploy/nginx-tokenpool.conf`
 - `deploy/deploy-frontend-atomic.sh`
+
+## 最近一次上线变更（2026-08-25）
+
+本次上线包含新功能与性能优化两部分，均已部署到生产并通过回归验证。
+
+### 新功能：每用户消费明细
+
+- 管理后台新增「消费明细」入口（「用户管理」和「Token 统计 → 成员用量」两处均可进入）。
+- 支持按「实际模型 + Provider」查看单个用户的请求数、输入/输出/总 Token 与费用。
+- 支持按「北京时间自然日」查看每天的消费时间序列（7/30/90 天或全部时间）。
+- 新增接口：`GET /api/admin/users/{user_id}/usage?days=30`。
+
+### 性能优化：请求热路径
+
+- API Key 的 `last_used_at` 改为节流写入，避免每次请求都产生一次数据库写。
+- `team-coding` 模型回退路径由多段顺序查询合并为更少的 JOIN 查询。
+- usage 日志的「pending → finish」两段写入保持不变（用于服务启动时恢复中断请求）。
+
+### 回滚步骤
+
+以下命令在服务器上执行（本次上线前的后端备份位于
+`/opt/tokenpool/backend/.backup-20260825-151009`，前端上一版本为
+`20260825-bill-reconcile`）。
+
+后端回退（覆盖回 3 个文件并重启）：
+
+```bash
+BACKUP=/opt/tokenpool/backend/.backup-20260825-151009
+cp "$BACKUP/admin.py"        /opt/tokenpool/backend/app/routers/admin.py
+cp "$BACKUP/auth_service.py" /opt/tokenpool/backend/app/services/auth_service.py
+cp "$BACKUP/model_router.py" /opt/tokenpool/backend/app/services/model_router.py
+chown tokenpool:tokenpool \
+  /opt/tokenpool/backend/app/routers/admin.py \
+  /opt/tokenpool/backend/app/services/auth_service.py \
+  /opt/tokenpool/backend/app/services/model_router.py
+systemctl restart tokenpool
+```
+
+前端回退（切回上一版本目录）：
+
+```bash
+ln -sfn /var/www/tokenpool-releases/20260825-bill-reconcile /var/www/tokenpool-current
+systemctl reload nginx
+```
+
+> 本次后端与前端为配套发布，建议一并回退；仅回退后端会让前端「消费明细」
+> 因接口缺失而报错。
 
 ## 后续演进
 

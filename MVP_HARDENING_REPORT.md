@@ -1,6 +1,6 @@
 # TokenPool 项目进度与验收报告
 
-最后更新：2026-08-24
+最后更新：2026-08-25
 
 ## 当前结论
 
@@ -67,6 +67,17 @@ Nginx + systemd FastAPI + PostgreSQL + 预构建 Vue 静态资源的无 Docker �
 - Alembic 管理 SQLite/PostgreSQL 迁移；生产已使用 PostgreSQL。
 - 前端 Element Plus 按需引入、路由懒加载，并具备动态资源加载失败恢复机制。
 - Nginx 为 SSE 关闭缓冲，启用 Gzip、静态资源 immutable 缓存和原子发布。
+
+### 6. 每用户消费明细与热路径优化
+
+- 管理后台新增「消费明细」，可查看单个用户按「实际模型 + Provider」聚合的
+  请求数、输入/输出/总 Token 与费用。
+- 支持按北京时间自然日查看每天的消费时间序列（7/30/90 天或全部时间）。
+- 新增接口 `GET /api/admin/users/{user_id}/usage?days=30`。
+- API Key 的 `last_used_at` 改为节流写入，减少每次请求的多余数据库写。
+- `team-coding` 模型回退路径由多段顺序查询合并为更少的 JOIN 查询。
+- 已部署生产并通过回归：后端 78 项测试通过、前端构建通过、生产 `/health`
+  正常，新接口已用真实数据验证通过。
 
 ## 当前生产结构
 
