@@ -33,13 +33,13 @@ const logsLoading = ref(false);
 const logPage = ref(1);
 const logPageSize = ref(50);
 const statsFilters = reactive({
-  days: 30,
+  days: "today",
   username: "",
   model: "",
   provider: "",
 });
 const logFilters = reactive({
-  days: "30",
+  days: "today",
   username: "",
   model: "",
   provider: "",
@@ -49,7 +49,7 @@ const logFilters = reactive({
 const usageDetailVisible = ref(false);
 const usageDetailLoading = ref(false);
 const usageDetailUser = ref<any>(null);
-const usageDetailPeriod = ref("30");
+const usageDetailPeriod = ref("today");
 const usageDetail = ref<any>({
   summary: {},
   by_model: [],
@@ -381,8 +381,10 @@ async function savePricing() {
 }
 
 function buildUsageParams(filters: typeof statsFilters): AdminUsageFilters {
+  const period = filters.days;
   return {
-    days: filters.days,
+    days: period === "today" ? undefined : Number(period),
+    today: period === "today" ? true : undefined,
     username: filters.username || undefined,
     model: filters.model || undefined,
     provider: filters.provider || undefined,
@@ -435,7 +437,7 @@ async function applyStatsFilters() {
 
 async function resetStatsFilters() {
   Object.assign(statsFilters, {
-    days: "30",
+    days: "today",
     username: "",
     model: "",
     provider: "",
@@ -506,7 +508,7 @@ async function applyLogFilters() {
 
 async function resetLogFilters() {
   Object.assign(logFilters, {
-    days: "30",
+    days: "today",
     username: "",
     model: "",
     provider: "",
@@ -558,7 +560,7 @@ function openUserUsage(row: any) {
     return;
   }
   usageDetailUser.value = target;
-  usageDetailPeriod.value = "30";
+  usageDetailPeriod.value = "today";
   usageDetail.value = { summary: {}, by_model: [], by_day: [] };
   usageDetailVisible.value = true;
   loadUsageDetail();
