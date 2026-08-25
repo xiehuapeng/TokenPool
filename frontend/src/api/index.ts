@@ -100,8 +100,8 @@ export const adminApi = {
     http.post(`/api/admin/providers/${code}/sync-models`, body),
   stats: (params: AdminUsageFilters = {}) =>
     http.get("/api/admin/stats", { params }),
-  userUsage: (userId: number, days: number) =>
-    http.get(`/api/admin/users/${userId}/usage`, { params: { days } }),
+  userUsage: (userId: number, params: { days?: number; today?: boolean }) =>
+    http.get(`/api/admin/users/${userId}/usage`, { params }),
   logs: (params: AdminLogFilters = {}) =>
     http.get("/api/admin/usage-logs", { params }),
   backfillCosts: (dryRun = false) =>

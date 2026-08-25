@@ -49,7 +49,7 @@ const logFilters = reactive({
 const usageDetailVisible = ref(false);
 const usageDetailLoading = ref(false);
 const usageDetailUser = ref<any>(null);
-const usageDetailDays = ref(30);
+const usageDetailPeriod = ref("30");
 const usageDetail = ref<any>({
   summary: {},
   by_model: [],
@@ -533,10 +533,11 @@ async function loadUsageDetail() {
   if (!usageDetailUser.value) return;
   usageDetailLoading.value = true;
   try {
-    const response = await adminApi.userUsage(
-      usageDetailUser.value.id,
-      usageDetailDays.value,
-    );
+    const params =
+      usageDetailPeriod.value === "today"
+        ? { today: true }
+        : { days: Number(usageDetailPeriod.value) };
+    const response = await adminApi.userUsage(usageDetailUser.value.id, params);
     usageDetail.value = response.data;
   } catch (error) {
     ElMessage.error(errorMessage(error));
@@ -555,7 +556,7 @@ function openUserUsage(row: any) {
     return;
   }
   usageDetailUser.value = target;
-  usageDetailDays.value = 30;
+  usageDetailPeriod.value = "30";
   usageDetail.value = { summary: {}, by_model: [], by_day: [] };
   usageDetailVisible.value = true;
   loadUsageDetail();
@@ -1674,12 +1675,12 @@ onMounted(loadAll);
     >
       <div class="usage-detail-toolbar">
         <span>统计周期</span>
-        <el-select v-model="usageDetailDays" @change="loadUsageDetail">
-          <el-option label="最近 1 天" :value="1" />
-          <el-option label="最近 7 天" :value="7" />
-          <el-option label="最近 30 天" :value="30" />
-          <el-option label="最近 90 天" :value="90" />
-          <el-option label="全部时间" :value="0" />
+        <el-select v-model="usageDetailPeriod" @change="loadUsageDetail">
+          <el-option label="今天" value="today" />
+          <el-option label="最近 7 天" value="7" />
+          <el-option label="最近 30 天" value="30" />
+          <el-option label="最近 90 天" value="90" />
+          <el-option label="全部时间" value="0" />
         </el-select>
       </div>
 

@@ -37,7 +37,7 @@ from app.utils.security import (
     hash_invite_code,
     hash_password,
 )
-from app.utils.time import beijing_iso, to_beijing, utc_now
+from app.utils.time import beijing_day_start_utc, beijing_iso, to_beijing, utc_now
 
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -694,12 +694,12 @@ async def user_usage_detail(
     _admin: Admin,
     session: DbSession,
     days: int = Query(default=30, ge=0, le=3660),
+    today: bool = Query(default=False),
 ) -> dict:
     user = await session.get(User, user_id)
     if user is None:
         raise GatewayError("用户不存在", status_code=404, code="user_not_found")
 
-    since = utc_now() - timedelta(days=days) if days else None
     statement = (
         select(
             UsageLog.request_time,
@@ -714,8 +714,16 @@ async def user_usage_detail(
         .where(UsageLog.user_id == user_id)
         .order_by(UsageLog.request_time)
     )
-    if since is not None:
-        statement = statement.where(UsageLog.request_time >= since)
+    if today:
+        day_start = beijing_day_start_utc()
+        statement = statement.where(
+            UsageLog.request_time >= day_start,
+            UsageLog.request_time < day_start + timedelta(days=1),
+        )
+    else:
+        since = utc_now() - timedelta(days=days) if days else None
+        if since is not None:
+            statement = statement.where(UsageLog.request_time >= since)
     rows = await session.execute(statement)
 
     by_model: dict[tuple[str, str], dict] = {}
@@ -789,6 +797,7 @@ async def user_usage_detail(
 
     return {
         "days": days,
+        "today": today,
         "user": {"id": user.id, "username": user.username},
         "summary": {
             "requests": sum(item["requests"] for item in by_day_list),
