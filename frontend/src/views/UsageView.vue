@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { meApi } from "@/api";
 
 const data = ref<any>({
-  today_requests: 0,
-  today_tokens: 0,
-  today_input_tokens: 0,
-  today_output_tokens: 0,
-  today_cost: 0,
+  summary: {},
   by_model: [],
+  filter_options: { models: [] },
+});
+
+const filters = reactive({
+  days: "30",
+  model: "",
 });
 
 function formatTokens(value: unknown) {
@@ -23,9 +25,24 @@ function formatCost(value: unknown) {
   return `¥${num.toFixed(2)}`;
 }
 
-onMounted(async () => {
-  data.value = (await meApi.usage()).data;
-});
+function buildParams() {
+  return {
+    days: filters.days === "today" ? undefined : Number(filters.days),
+    today: filters.days === "today" ? true : undefined,
+    model: filters.model || undefined,
+  };
+}
+
+async function load() {
+  data.value = (await meApi.usage(buildParams())).data;
+}
+
+async function resetFilters() {
+  Object.assign(filters, { days: "30", model: "" });
+  await load();
+}
+
+onMounted(load);
 </script>
 
 <template>
@@ -33,35 +50,60 @@ onMounted(async () => {
     <div class="page-heading">
       <div>
         <h1>个人用量</h1>
-        <p>今日概览与最近 30 天模型消费明细。</p>
+        <p>按时间和模型查看自己的调用明细。</p>
       </div>
     </div>
-    <el-row :gutter="20">
-      <el-col :span="6">
-        <div class="metric-card">
-          <span>今日请求</span>
-          <strong>{{ formatTokens(data.today_requests) }}</strong>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="metric-card">
-          <span>今日 Token</span>
-          <strong>{{ formatTokens(data.today_tokens) }}</strong>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="metric-card">
-          <span>今日费用</span>
-          <strong>{{ formatCost(data.today_cost) }}</strong>
-        </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="metric-card">
-          <span>使用模型</span>
-          <strong>{{ data.by_model.length }}</strong>
-        </div>
-      </el-col>
-    </el-row>
+
+    <div
+      class="usage-filter-bar"
+      style="grid-template-columns: 150px minmax(200px, 1fr) auto"
+    >
+      <el-select v-model="filters.days" class="usage-filter-period">
+        <el-option label="今天" value="today" />
+        <el-option label="最近 24 小时" value="1" />
+        <el-option label="最近 7 天" value="7" />
+        <el-option label="最近 30 天" value="30" />
+        <el-option label="最近 90 天" value="90" />
+        <el-option label="全部时间" value="0" />
+      </el-select>
+      <el-select
+        v-model="filters.model"
+        filterable
+        clearable
+        placeholder="全部实际模型"
+      >
+        <el-option
+          v-for="model in data.filter_options.models"
+          :key="model"
+          :label="model"
+          :value="model"
+        />
+      </el-select>
+      <div class="usage-filter-actions">
+        <el-button type="primary" @click="load">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
+      </div>
+    </div>
+
+    <div class="admin-metric-grid">
+      <div class="metric-card usage-metric-primary">
+        <span>总 Token</span>
+        <strong>{{ formatTokens(data.summary.total_tokens) }}</strong>
+      </div>
+      <div class="metric-card">
+        <span>总费用</span>
+        <strong>{{ formatCost(data.summary.cost) }}</strong>
+      </div>
+      <div class="metric-card">
+        <span>请求数</span>
+        <strong>{{ formatTokens(data.summary.requests) }}</strong>
+      </div>
+      <div class="metric-card">
+        <span>使用模型</span>
+        <strong>{{ data.by_model.length }}</strong>
+      </div>
+    </div>
+
     <el-card shadow="never" class="section-card">
       <template #header><strong>模型消费明细</strong></template>
       <el-table :data="data.by_model">

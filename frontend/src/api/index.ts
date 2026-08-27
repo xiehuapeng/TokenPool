@@ -72,7 +72,8 @@ export const meApi = {
     http.get<ModelPreference>("/api/me/model-preference"),
   updateModelPreference: (model: string) =>
     http.put<ModelPreference>("/api/me/model-preference", { model }),
-  usage: () => http.get("/api/me/usage/summary"),
+  usage: (params: { days?: number; today?: boolean; model?: string } = {}) =>
+    http.get("/api/me/usage/summary", { params }),
 };
 
 export const adminApi = {

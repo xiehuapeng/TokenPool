@@ -264,7 +264,7 @@ async def test_openai_compatible_non_stream_and_stream(client):
 
         usage = await client.get("/api/me/usage/summary", headers=user_headers)
         assert usage.status_code == 200
-        assert usage.json()["today_tokens"] == 12
+        assert usage.json()["summary"]["total_tokens"] == 12
 
         admin_logs = await client.get(
             "/api/admin/usage-logs",
@@ -666,8 +666,8 @@ async def test_user_usage_and_models_detail(client):
         usage = await client.get("/api/me/usage/summary", headers=user_headers)
         assert usage.status_code == 200, usage.text
         usage_data = usage.json()
-        assert usage_data["today_tokens"] >= 6
-        assert usage_data["today_cost"] >= 0
+        assert usage_data["summary"]["total_tokens"] >= 6
+        assert usage_data["summary"]["cost"] >= 0
         deepseek_row = next(
             item
             for item in usage_data["by_model"]
@@ -678,6 +678,26 @@ async def test_user_usage_and_models_detail(client):
         assert deepseek_row["total_tokens"] >= 6
         assert "cached_input_tokens" in deepseek_row
         assert isinstance(deepseek_row["cost"], (int, float))
+
+        filtered = await client.get(
+            "/api/me/usage/summary",
+            headers=user_headers,
+            params={"model": "deepseek-v4-flash"},
+        )
+        assert filtered.status_code == 200, filtered.text
+        filtered_data = filtered.json()
+        assert all(
+            item["model"] == "deepseek-v4-flash"
+            for item in filtered_data["by_model"]
+        )
+
+        today_usage = await client.get(
+            "/api/me/usage/summary",
+            headers=user_headers,
+            params={"today": "true"},
+        )
+        assert today_usage.status_code == 200, today_usage.text
+        assert today_usage.json()["summary"]["requests"] >= 1
 
         models = await client.get("/api/me/models", headers=user_headers)
         assert models.status_code == 200, models.text

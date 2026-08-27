@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy import and_, case, func, or_, select
 
 from app.config.settings import get_settings
@@ -351,20 +351,37 @@ async def update_model_preference(
 
 @router.get("/usage/summary")
 async def usage_summary(
-    user: Annotated[User, Depends(current_user)], session: DbSession
+    user: Annotated[User, Depends(current_user)],
+    session: DbSession,
+    days: int = Query(default=30, ge=0, le=3660),
+    today: bool = Query(default=False),
+    model: str | None = None,
 ) -> dict:
-    today = beijing_day_start_utc()
-    totals = (
+    conditions = [UsageLog.user_id == user.id]
+    if today:
+        day_start = beijing_day_start_utc()
+        conditions.append(UsageLog.request_time >= day_start)
+        conditions.append(UsageLog.request_time < day_start + timedelta(days=1))
+    elif days:
+        conditions.append(UsageLog.request_time >= utc_now() - timedelta(days=days))
+    if model:
+        conditions.append(UsageLog.model == model)
+
+    summary = (
         await session.execute(
             select(
                 func.count(UsageLog.id),
-                func.coalesce(func.sum(UsageLog.total_tokens), 0),
+                func.sum(case((UsageLog.status == "success", 1), else_=0)),
                 func.coalesce(func.sum(UsageLog.input_tokens), 0),
                 func.coalesce(func.sum(UsageLog.output_tokens), 0),
+                func.coalesce(func.sum(UsageLog.cached_input_tokens), 0),
+                func.coalesce(func.sum(UsageLog.reasoning_tokens), 0),
+                func.coalesce(func.sum(UsageLog.total_tokens), 0),
                 func.coalesce(func.sum(UsageLog.cost), 0),
-            ).where(UsageLog.user_id == user.id, UsageLog.request_time >= today)
+            ).where(*conditions)
         )
     ).one()
+
     by_model = (
         await session.execute(
             select(
@@ -379,20 +396,35 @@ async def usage_summary(
                 func.coalesce(func.sum(UsageLog.total_tokens), 0),
                 func.coalesce(func.sum(UsageLog.cost), 0),
             )
-            .where(
-                UsageLog.user_id == user.id,
-                UsageLog.request_time >= today - timedelta(days=30),
-            )
+            .where(*conditions)
             .group_by(UsageLog.model, UsageLog.provider)
             .order_by(func.sum(UsageLog.total_tokens).desc())
         )
     ).all()
+
+    filter_models = list(
+        await session.scalars(
+            select(UsageLog.model)
+            .where(UsageLog.user_id == user.id)
+            .distinct()
+            .order_by(UsageLog.model)
+        )
+    )
+
     return {
-        "today_requests": totals[0],
-        "today_tokens": totals[1],
-        "today_input_tokens": totals[2],
-        "today_output_tokens": totals[3],
-        "today_cost": float(totals[4] or 0),
+        "days": days,
+        "today": today,
+        "model": model,
+        "summary": {
+            "requests": summary[0],
+            "success_requests": summary[1] or 0,
+            "input_tokens": summary[2],
+            "output_tokens": summary[3],
+            "cached_input_tokens": summary[4],
+            "reasoning_tokens": summary[5],
+            "total_tokens": summary[6],
+            "cost": float(summary[7] or 0),
+        },
         "by_model": [
             {
                 "model": row[0],
@@ -408,4 +440,5 @@ async def usage_summary(
             }
             for row in by_model
         ],
+        "filter_options": {"models": filter_models},
     }
