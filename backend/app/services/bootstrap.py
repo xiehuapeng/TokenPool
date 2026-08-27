@@ -254,6 +254,13 @@ async def seed_initial_data() -> None:
             glm.base_url = settings.glm_base_url
             glm.enabled = bool(settings.glm_api_key.get_secret_value())
 
+        glm_capabilities = {
+            "chat": True,
+            "stream": True,
+            "tools": True,
+            "json": True,
+            "thinking": True,
+        }
         for index, model_id in enumerate(
             (
                 "glm-4.5",
@@ -265,6 +272,7 @@ async def seed_initial_data() -> None:
                 "glm-5.1",
                 "glm-5.2",
                 "glm-5.3",
+                "glm-5.3-flash",
             )
         ):
             existing_model = await session.scalar(
@@ -279,16 +287,15 @@ async def seed_initial_data() -> None:
                         display_name=model_id.upper(),
                         enabled=True,
                         default_allowed=True,
-                        capabilities={
-                            "chat": True,
-                            "stream": True,
-                            "tools": True,
-                            "json": True,
-                            "thinking": True,
-                        },
+                        capabilities=dict(glm_capabilities),
                         sort_order=100 + index,
                     )
                 )
+            else:
+                existing_model.capabilities = {
+                    **(existing_model.capabilities or {}),
+                    **glm_capabilities,
+                }
 
         for code, name, base_url, api_key in (
             (
