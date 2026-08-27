@@ -2,11 +2,19 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 
 from app.config.settings import get_settings
 from app.dependencies import DbSession, current_user
-from app.models import ApiKey, ModelConfig, ProviderConfig, UsageLog, User
+from app.models import (
+    ApiKey,
+    ModelConfig,
+    ModelPricing,
+    ProviderConfig,
+    UsageLog,
+    User,
+    UserModelPermission,
+)
 from app.schemas.api_key import (
     ApiKeyCreate,
     ApiKeyCreated,
@@ -239,32 +247,66 @@ async def update_key_preferred_model(
     )
 
 
+def _pricing_view(pricing: ModelPricing | None) -> dict | None:
+    if pricing is None or not pricing.enabled:
+        return None
+
+    def _num(value) -> float | None:
+        return float(value) if value is not None else None
+
+    return {
+        "input_price": _num(pricing.input_price),
+        "cached_input_price": _num(pricing.cached_input_price),
+        "output_price": _num(pricing.output_price),
+        "peak_input_price": _num(pricing.peak_input_price),
+        "tier_threshold_tokens": pricing.tier_threshold_tokens,
+        "high_input_price": _num(pricing.high_input_price),
+        "enabled": pricing.enabled,
+    }
+
+
 @router.get("/models")
 async def list_available_models(
     user: Annotated[User, Depends(current_user)], session: DbSession
 ) -> list[dict]:
     rows = await session.execute(
-        select(ModelConfig, ProviderConfig)
-        .join(ProviderConfig)
+        select(
+            ModelConfig,
+            ProviderConfig,
+            ModelPricing,
+            UserModelPermission.allowed,
+        )
+        .join(ProviderConfig, ProviderConfig.id == ModelConfig.provider_id)
+        .outerjoin(ModelPricing, ModelPricing.model_config_id == ModelConfig.id)
+        .outerjoin(
+            UserModelPermission,
+            and_(
+                UserModelPermission.model_config_id == ModelConfig.id,
+                UserModelPermission.user_id == user.id,
+            ),
+        )
+        .where(ModelConfig.enabled.is_(True), ProviderConfig.enabled.is_(True))
         .order_by(ModelConfig.sort_order, ModelConfig.public_model)
     )
-    return [
-        {
-            "id": model.public_model,
-            "display_name": model.display_name,
-            "provider": provider.display_name,
-            "status": "enabled" if model.enabled and provider.enabled else "planned",
-            "capabilities": model.capabilities,
-            "official_available": (model.capabilities or {}).get(
-                "official_available"
-            ),
-            "official_synced_at": (model.capabilities or {}).get(
-                "official_synced_at"
-            ),
-            "selected": model.id == user.preferred_model_id,
-        }
-        for model, provider in rows
-    ]
+    models = []
+    for model, provider, pricing, explicit_allowed in rows:
+        allowed = (
+            model.default_allowed if explicit_allowed is None else explicit_allowed
+        )
+        if not allowed:
+            continue
+        models.append(
+            {
+                "id": model.public_model,
+                "display_name": model.display_name,
+                "provider": provider.display_name,
+                "status": "enabled",
+                "capabilities": model.capabilities,
+                "selected": model.id == user.preferred_model_id,
+                "pricing": _pricing_view(pricing),
+            }
+        )
+    return models
 
 
 @router.get("/model-preference", response_model=ModelPreferenceView)
@@ -317,6 +359,9 @@ async def usage_summary(
             select(
                 func.count(UsageLog.id),
                 func.coalesce(func.sum(UsageLog.total_tokens), 0),
+                func.coalesce(func.sum(UsageLog.input_tokens), 0),
+                func.coalesce(func.sum(UsageLog.output_tokens), 0),
+                func.coalesce(func.sum(UsageLog.cost), 0),
             ).where(UsageLog.user_id == user.id, UsageLog.request_time >= today)
         )
     ).one()
@@ -324,27 +369,42 @@ async def usage_summary(
         await session.execute(
             select(
                 UsageLog.model,
+                UsageLog.provider,
                 func.count(UsageLog.id),
-                func.coalesce(func.sum(UsageLog.total_tokens), 0),
                 func.sum(case((UsageLog.status == "success", 1), else_=0)),
+                func.coalesce(func.sum(UsageLog.input_tokens), 0),
+                func.coalesce(func.sum(UsageLog.output_tokens), 0),
+                func.coalesce(func.sum(UsageLog.cached_input_tokens), 0),
+                func.coalesce(func.sum(UsageLog.reasoning_tokens), 0),
+                func.coalesce(func.sum(UsageLog.total_tokens), 0),
+                func.coalesce(func.sum(UsageLog.cost), 0),
             )
             .where(
                 UsageLog.user_id == user.id,
                 UsageLog.request_time >= today - timedelta(days=30),
             )
-            .group_by(UsageLog.model)
+            .group_by(UsageLog.model, UsageLog.provider)
             .order_by(func.sum(UsageLog.total_tokens).desc())
         )
     ).all()
     return {
         "today_requests": totals[0],
         "today_tokens": totals[1],
+        "today_input_tokens": totals[2],
+        "today_output_tokens": totals[3],
+        "today_cost": float(totals[4] or 0),
         "by_model": [
             {
                 "model": row[0],
-                "requests": row[1],
-                "tokens": row[2],
-                "successes": row[3],
+                "provider": row[1],
+                "requests": row[2],
+                "success_requests": row[3] or 0,
+                "input_tokens": row[4],
+                "output_tokens": row[5],
+                "cached_input_tokens": row[6],
+                "reasoning_tokens": row[7],
+                "total_tokens": row[8],
+                "cost": float(row[9] or 0),
             }
             for row in by_model
         ],

@@ -623,3 +623,71 @@ async def test_user_usage_detail_breakdown(client):
         assert missing.status_code == 404
     finally:
         provider_registry._providers["deepseek"] = original_provider
+
+
+@pytest.mark.asyncio
+async def test_user_usage_and_models_detail(client):
+    original_provider = provider_registry._providers["deepseek"]
+    fake_provider = FakeProvider()
+    provider_registry._providers["deepseek"] = fake_provider
+    try:
+        admin_token = await login(client, "admin", "admin-password")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        create_user = await client.post(
+            "/api/admin/users",
+            headers=admin_headers,
+            json={
+                "username": "me-detail-user",
+                "password": "developer-password1",
+            },
+        )
+        assert create_user.status_code in (201, 409), create_user.text
+        user_token = await login(client, "me-detail-user", "developer-password1")
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        key = (
+            await client.post(
+                "/api/me/api-keys",
+                headers=user_headers,
+                json={"name": "me-detail"},
+            )
+        ).json()["key"]
+        api_headers = {"Authorization": f"Bearer {key}"}
+
+        response = await client.post(
+            "/v1/chat/completions",
+            headers=api_headers,
+            json={
+                "model": "team-coding",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        assert response.status_code == 200, response.text
+
+        usage = await client.get("/api/me/usage/summary", headers=user_headers)
+        assert usage.status_code == 200, usage.text
+        usage_data = usage.json()
+        assert usage_data["today_tokens"] >= 6
+        assert usage_data["today_cost"] >= 0
+        deepseek_row = next(
+            item
+            for item in usage_data["by_model"]
+            if item["model"] == "deepseek-v4-flash"
+        )
+        assert deepseek_row["input_tokens"] >= 4
+        assert deepseek_row["output_tokens"] >= 2
+        assert deepseek_row["total_tokens"] >= 6
+        assert "cached_input_tokens" in deepseek_row
+        assert isinstance(deepseek_row["cost"], (int, float))
+
+        models = await client.get("/api/me/models", headers=user_headers)
+        assert models.status_code == 200, models.text
+        models_data = models.json()
+        assert models_data
+        assert all(item["status"] == "enabled" for item in models_data)
+        deepseek_model = next(
+            item for item in models_data if item["id"] == "deepseek-v4-flash"
+        )
+        assert deepseek_model["pricing"] is not None
+        assert "input_price" in deepseek_model["pricing"]
+    finally:
+        provider_registry._providers["deepseek"] = original_provider
