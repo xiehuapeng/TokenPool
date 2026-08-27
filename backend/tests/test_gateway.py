@@ -709,5 +709,6 @@ async def test_user_usage_and_models_detail(client):
         )
         assert deepseek_model["pricing"] is not None
         assert "input_price" in deepseek_model["pricing"]
+        assert deepseek_model["description"]
     finally:
         provider_registry._providers["deepseek"] = original_provider

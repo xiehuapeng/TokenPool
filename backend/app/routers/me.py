@@ -247,6 +247,28 @@ async def update_key_preferred_model(
     )
 
 
+MODEL_DESCRIPTIONS = {
+    "glm-5.3": "智谱当前旗舰编码模型，复杂代码生成、重构与 Agentic 编程能力最强，长上下文工程表现好，团队编程首选。",
+    "glm-5.3-flash": "GLM-5.3 高速轻量版，响应更快、价格更低，适合日常问答、轻量编码与高并发场景。",
+    "glm-5.2": "上一代 GLM 旗舰，能力稳定均衡，可作为 glm-5.3 的备选。",
+    "glm-5.1": "上一代 GLM 旗舰，综合编码与推理能力良好，价格低于最新旗舰。",
+    "glm-5": "GLM 5 系列基础旗舰，适合常规编码与对话任务。",
+    "glm-5-turbo": "GLM-5 加速版，延迟更低、价格更便宜，适合高频轻量调用。",
+    "glm-4.7": "GLM 4.x 高性价比档位，日常编码与文本任务够用且便宜。",
+    "glm-4.6": "GLM 4.x 均衡型模型，工具调用与 JSON 输出稳定。",
+    "glm-4.5": "GLM 4.5 标准版，适合低成本兜底场景。",
+    "glm-4.5-air": "GLM 4.5 Air 轻量版，速度快、成本最低，适合简单任务与批量处理。",
+    "deepseek-v4-pro": "DeepSeek 推理旗舰，深度思考、复杂推理与代码任务表现突出。",
+    "deepseek-v4-flash": "DeepSeek 轻量快速版，性价比最高，适合日常辅助与非复杂任务。",
+    "kimi-k3": "Kimi K3，长上下文与 Agent 任务表现出色，适合大文档分析与多步工具调用。",
+    "kimi-k2.7-code": "Kimi 代码特化模型，面向仓库级代码理解与生成。",
+    "kimi-k2.7-code-highspeed": "Kimi K2.7 Code 高速版，保持代码能力的同时显著降低延迟。",
+    "qwen3.8-max": "通义千问当前旗舰，中文理解与综合推理强，适合数据分析与通用办公场景。",
+    "qwen3.7-plus": "通义千问 Plus 档位，速度与成本平衡，适合高频日常任务。",
+    "qwen3.7-max": "通义千问上一代 Max 档位，综合能力稳定。",
+}
+
+
 def _pricing_view(pricing: ModelPricing | None) -> dict | None:
     if pricing is None or not pricing.enabled:
         return None
@@ -301,6 +323,7 @@ async def list_available_models(
                 "display_name": model.display_name,
                 "provider": provider.display_name,
                 "status": "enabled",
+                "description": MODEL_DESCRIPTIONS.get(model.public_model),
                 "capabilities": model.capabilities,
                 "selected": model.id == user.preferred_model_id,
                 "pricing": _pricing_view(pricing),

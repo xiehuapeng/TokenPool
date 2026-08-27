@@ -33,6 +33,16 @@ onMounted(async () => {
       <el-table :data="models">
         <el-table-column prop="id" label="模型" min-width="180" />
         <el-table-column prop="provider" label="Provider" />
+        <el-table-column
+          prop="description"
+          label="介绍"
+          min-width="300"
+          show-overflow-tooltip
+        >
+          <template #default="{ row }">
+            {{ row.description || "—" }}
+          </template>
+        </el-table-column>
         <el-table-column label="计费价格（元/百万Token）" min-width="240">
           <template #default="{ row }">
             <template v-if="row.pricing">
