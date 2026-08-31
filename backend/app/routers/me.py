@@ -284,6 +284,7 @@ def _pricing_view(pricing: ModelPricing | None) -> dict | None:
         "tier_threshold_tokens": pricing.tier_threshold_tokens,
         "high_input_price": _num(pricing.high_input_price),
         "enabled": pricing.enabled,
+        "note": pricing.note,
     }
 
 

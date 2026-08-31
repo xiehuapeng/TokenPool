@@ -16,6 +16,11 @@ function formatPrice(value: unknown) {
   return Number.isFinite(num) ? String(num) : "—";
 }
 
+function discountLabel(note: string | null | undefined) {
+  if (!note || !note.includes("限时")) return null;
+  return note.includes("半价") ? "限时半价" : "限时折扣";
+}
+
 const modelGroups = computed(() => {
   const grouped = new Map<string, any[]>();
   for (const model of models.value) {
@@ -79,10 +84,20 @@ onMounted(async () => {
                 <div
                   v-if="
                     row.pricing.peak_input_price != null ||
-                    row.pricing.tier_threshold_tokens != null
+                    row.pricing.tier_threshold_tokens != null ||
+                    discountLabel(row.pricing.note)
                   "
                   class="model-price-tags"
                 >
+                  <el-tooltip
+                    v-if="discountLabel(row.pricing.note)"
+                    :content="row.pricing.note"
+                    placement="top"
+                  >
+                    <el-tag size="small" type="danger" effect="plain">
+                      {{ discountLabel(row.pricing.note) }}
+                    </el-tag>
+                  </el-tooltip>
                   <el-tag
                     v-if="row.pricing.peak_input_price != null"
                     size="small"
