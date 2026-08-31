@@ -9,7 +9,14 @@ from app.utils.security import hash_password
 from app.utils.time import utc_now
 
 
-VISION_CAPABLE_MODELS = {"qwen3.8-max", "kimi-k3"}
+VISION_CAPABLE_MODELS = {
+    "glm-5.3-flash",
+    "qwen3.8-max",
+    "qwen3.7-plus",
+    "kimi-k3",
+    "kimi-k2.7-code",
+    "kimi-k2.7-code-highspeed",
+}
 
 SEED_PRICINGS: dict[str, dict] = {
     "deepseek-v4-flash": {
@@ -179,6 +186,14 @@ async def seed_initial_data() -> None:
                 ("deepseek-v4-pro", "DeepSeek V4 Pro"),
             )
         ):
+            capabilities = {
+                "chat": True,
+                "stream": True,
+                "tools": True,
+                "json": True,
+                "thinking": True,
+                **({"vision": True} if model_id in VISION_CAPABLE_MODELS else {}),
+            }
             model = await session.scalar(
                 select(ModelConfig).where(ModelConfig.public_model == model_id)
             )
@@ -191,13 +206,7 @@ async def seed_initial_data() -> None:
                         display_name=display_name,
                         enabled=deepseek.enabled,
                         default_allowed=deepseek.enabled,
-                        capabilities={
-                            "chat": True,
-                            "stream": True,
-                            "tools": True,
-                            "json": True,
-                            "thinking": True,
-                        },
+                        capabilities=capabilities,
                         sort_order=index,
                     )
                 )
@@ -275,6 +284,10 @@ async def seed_initial_data() -> None:
                 "glm-5.3-flash",
             )
         ):
+            capabilities = {
+                **glm_capabilities,
+                **({"vision": True} if model_id in VISION_CAPABLE_MODELS else {}),
+            }
             existing_model = await session.scalar(
                 select(ModelConfig).where(ModelConfig.public_model == model_id)
             )
@@ -287,14 +300,14 @@ async def seed_initial_data() -> None:
                         display_name=model_id.upper(),
                         enabled=True,
                         default_allowed=True,
-                        capabilities=dict(glm_capabilities),
+                        capabilities=capabilities,
                         sort_order=100 + index,
                     )
                 )
             else:
                 existing_model.capabilities = {
                     **(existing_model.capabilities or {}),
-                    **glm_capabilities,
+                    **capabilities,
                 }
 
         for code, name, base_url, api_key in (
