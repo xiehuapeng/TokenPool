@@ -168,7 +168,6 @@ onMounted(refreshModels);
         <template #header>
           <div class="card-header model-provider-name">
             <strong>{{ group.provider }}</strong>
-            <el-tag size="small" effect="plain">{{ group.models.length }} 个模型</el-tag>
           </div>
         </template>
         <el-table :data="group.models" :row-class-name="rowClassName">

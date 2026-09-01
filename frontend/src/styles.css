@@ -140,6 +140,12 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   font-size: 13px;
   font-weight: 600;
 }
+.model-provider-card .model-provider-name {
+  margin-bottom: 0;
+  color: var(--el-text-color-primary);
+  font-size: 16px;
+  font-weight: 700;
+}
 .selected-model-code { margin-left: 12px; }
 .provider-model-list {
   min-height: 120px;
