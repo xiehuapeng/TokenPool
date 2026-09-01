@@ -445,6 +445,11 @@ async def seed_initial_data() -> None:
                     UserModelPermission.model_config_id == retired_kimi.id
                 )
             )
+            await session.execute(
+                delete(ModelPricing).where(
+                    ModelPricing.model_config_id == retired_kimi.id
+                )
+            )
             await session.delete(retired_kimi)
 
         # qwen3.7-max已下线，由qwen3.8-flash/3.8-max取代。升级时迁移用户
@@ -468,6 +473,15 @@ async def seed_initial_data() -> None:
             await session.execute(
                 delete(UserModelPermission).where(
                     UserModelPermission.model_config_id == retired_qwen_max.id
+                )
+            )
+            # Delete the one-to-one pricing row explicitly before deleting the
+            # model.  Without this, the ORM nulls model_config_id during flush,
+            # violating the column's NOT NULL constraint before the database's
+            # ON DELETE CASCADE can run.
+            await session.execute(
+                delete(ModelPricing).where(
+                    ModelPricing.model_config_id == retired_qwen_max.id
                 )
             )
             await session.delete(retired_qwen_max)
