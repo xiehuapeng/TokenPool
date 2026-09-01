@@ -52,22 +52,6 @@ SEED_PRICINGS: dict[str, dict] = {
             "9月10日起恢复原价输入0.8/输出2.8，需同步调整"
         ),
     },
-    "glm-5.2": {
-        "input_price": Decimal("8"),
-        "cached_input_price": Decimal("2"),
-        "output_price": Decimal("28"),
-        "note": "智谱官网价，不分档",
-    },
-    "glm-5.1": {
-        "input_price": Decimal("6"),
-        "cached_input_price": Decimal("1.3"),
-        "output_price": Decimal("24"),
-        "tier_threshold_tokens": 32768,
-        "high_input_price": Decimal("8"),
-        "high_cached_input_price": Decimal("2"),
-        "high_output_price": Decimal("28"),
-        "note": "智谱官网价，输入≤32K/＞32K两档",
-    },
     "glm-5": {
         "input_price": Decimal("4"),
         "cached_input_price": Decimal("1"),
@@ -287,8 +271,6 @@ async def seed_initial_data() -> None:
                 "glm-4.7",
                 "glm-5",
                 "glm-5-turbo",
-                "glm-5.1",
-                "glm-5.2",
                 "glm-5.3",
                 "glm-5.3-flash",
             )
@@ -318,6 +300,35 @@ async def seed_initial_data() -> None:
                     **(existing_model.capabilities or {}),
                     **capabilities,
                 }
+
+        # GLM-5.1/5.2已被5.3系列取代。升级时迁移用户偏好并删除历史
+        # 模型配置，避免继续展示或路由到已退役的模型名。
+        retired_glm_ids = list(
+            await session.scalars(
+                select(ModelConfig.id).where(
+                    ModelConfig.public_model.in_(("glm-5.1", "glm-5.2"))
+                )
+            )
+        )
+        if retired_glm_ids:
+            replacement = await session.scalar(
+                select(ModelConfig).where(ModelConfig.public_model == "glm-5.3")
+            )
+            await session.execute(
+                update(User)
+                .where(User.preferred_model_id.in_(retired_glm_ids))
+                .values(
+                    preferred_model_id=(replacement.id if replacement else None)
+                )
+            )
+            await session.execute(
+                delete(UserModelPermission).where(
+                    UserModelPermission.model_config_id.in_(retired_glm_ids)
+                )
+            )
+            await session.execute(
+                delete(ModelConfig).where(ModelConfig.id.in_(retired_glm_ids))
+            )
 
         for code, name, base_url, api_key in (
             (

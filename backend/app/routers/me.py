@@ -248,8 +248,8 @@ async def update_key_preferred_model(
 
 
 MODEL_DESCRIPTIONS = {
-    "glm-5.3": "智谱当前旗舰编码模型，复杂代码生成、重构与 Agentic 编程能力最强，长上下文工程表现好，团队编程首选。",
-    "glm-5.3-flash": "GLM-5.3 高速轻量版，响应更快、价格更低，适合日常问答、轻量编码与高并发场景。",
+    "glm-5.3": "复杂工程、代码重构、终端任务、Agent",
+    "glm-5.3-flash": "综合办公、图片理解、H5、日常代码",
     "glm-5.2": "上一代 GLM 旗舰，能力稳定均衡，可作为 glm-5.3 的备选。",
     "glm-5.1": "上一代 GLM 旗舰，综合编码与推理能力良好，价格低于最新旗舰。",
     "glm-5": "GLM 5 系列基础旗舰，适合常规编码与对话任务。",
@@ -258,14 +258,27 @@ MODEL_DESCRIPTIONS = {
     "glm-4.6": "GLM 4.x 均衡型模型，工具调用与 JSON 输出稳定。",
     "glm-4.5": "GLM 4.5 标准版，适合低成本兜底场景。",
     "glm-4.5-air": "GLM 4.5 Air 轻量版，速度快、成本最低，适合简单任务与批量处理。",
-    "deepseek-v4-pro": "DeepSeek 推理旗舰，深度思考、复杂推理与代码任务表现突出。",
-    "deepseek-v4-flash": "DeepSeek 轻量快速版，性价比最高，适合日常辅助与非复杂任务。",
-    "kimi-k3": "Kimi K3，长上下文与 Agent 任务表现出色，适合大文档分析与多步工具调用。",
-    "kimi-k2.7-code": "Kimi 代码特化模型，面向仓库级代码理解与生成。",
-    "kimi-k2.7-code-highspeed": "Kimi K2.7 Code 高速版，保持代码能力的同时显著降低延迟。",
-    "qwen3.8-max": "通义千问当前旗舰，中文理解与综合推理强，适合数据分析与通用办公场景。",
-    "qwen3.7-plus": "通义千问 Plus 档位，速度与成本平衡，适合高频日常任务。",
-    "qwen3.7-max": "通义千问上一代 Max 档位，综合能力稳定。",
+    "deepseek-v4-pro": "复杂编程、架构设计、算法、技术推理",
+    "deepseek-v4-flash": "日常编程、Bug 修复、脚本、技术问答",
+    "kimi-k3": "长文档、大型代码库、深度研究、长程 Agent",
+    "kimi-k2.7-code": "仓库级编程、多文件修改、重构、调试",
+    "kimi-k2.7-code-highspeed": "极速编程、实时修改、结对编程、低延迟",
+    "qwen3.8-max": "专业分析、高质量报告、金融、复杂任务",
+    "qwen3.7-plus": "日常办公、材料写作、总结、数据整理",
+    "qwen3.7-max": "文本办公、长文档、编程、旧任务兼容",
+}
+
+MODEL_INPUT_CONTEXT: dict[str, dict] = {
+    "deepseek-v4-flash": {"modalities": ["文本"], "context_window": "1M"},
+    "deepseek-v4-pro": {"modalities": ["文本"], "context_window": "1M"},
+    "glm-5.3-flash": {"modalities": ["视频", "图片", "文本", "文件"], "context_window": "1M"},
+    "glm-5.3": {"modalities": ["文本"], "context_window": "1M"},
+    "qwen3.8-max": {"modalities": ["图片", "视频", "文本"], "context_window": "1M"},
+    "qwen3.7-plus": {"modalities": ["图片", "视频", "文本"], "context_window": "1M"},
+    "qwen3.7-max": {"modalities": ["文本"], "context_window": "1M"},
+    "kimi-k3": {"modalities": ["图片", "视频", "文本"], "context_window": "1M"},
+    "kimi-k2.7-code": {"modalities": ["图片", "视频", "文本"], "context_window": "256K"},
+    "kimi-k2.7-code-highspeed": {"modalities": ["图片", "视频", "文本"], "context_window": "256K"},
 }
 
 
@@ -281,6 +294,8 @@ def _pricing_view(pricing: ModelPricing | None) -> dict | None:
         "cached_input_price": _num(pricing.cached_input_price),
         "output_price": _num(pricing.output_price),
         "peak_input_price": _num(pricing.peak_input_price),
+        "peak_cached_input_price": _num(pricing.peak_cached_input_price),
+        "peak_output_price": _num(pricing.peak_output_price),
         "tier_threshold_tokens": pricing.tier_threshold_tokens,
         "high_input_price": _num(pricing.high_input_price),
         "enabled": pricing.enabled,
@@ -318,6 +333,7 @@ async def list_available_models(
         )
         if not allowed:
             continue
+        input_context = MODEL_INPUT_CONTEXT.get(model.public_model) or {}
         models.append(
             {
                 "id": model.public_model,
@@ -325,6 +341,8 @@ async def list_available_models(
                 "provider": provider.display_name,
                 "status": "enabled",
                 "description": MODEL_DESCRIPTIONS.get(model.public_model),
+                "modalities": input_context.get("modalities", []),
+                "context_window": input_context.get("context_window"),
                 "capabilities": model.capabilities,
                 "selected": model.id == user.preferred_model_id,
                 "pricing": _pricing_view(pricing),

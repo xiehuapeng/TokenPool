@@ -219,10 +219,13 @@ async def test_key_preferred_model_routing(client):
 async def test_vision_reroute_and_friendly_error(client):
     original_deepseek = provider_registry._providers["deepseek"]
     original_qwen = provider_registry._providers["qwen"]
+    original_glm = provider_registry._providers["glm"]
     deepseek_fake = RecordingProvider("deepseek")
     qwen_fake = RecordingProvider("qwen")
+    glm_fake = RecordingProvider("glm")
     provider_registry._providers["deepseek"] = deepseek_fake
     provider_registry._providers["qwen"] = qwen_fake
+    provider_registry._providers["glm"] = glm_fake
     try:
         admin_token = await login(client, "admin", "admin-password")
         admin_headers = {"Authorization": f"Bearer {admin_token}"}
@@ -254,7 +257,8 @@ async def test_vision_reroute_and_friendly_error(client):
         )
         assert rerouted.status_code == 200, rerouted.text
         assert rerouted.json()["model"] == "deepseek-v4-flash"
-        assert qwen_fake.upstream_models[-1] == "qwen3.8-max"
+        assert glm_fake.upstream_models[-1] == "glm-5.3-flash"
+        assert qwen_fake.upstream_models == []
         assert deepseek_fake.upstream_models == []
 
         virtual_image = {**image_payload, "model": "team-coding"}
@@ -262,7 +266,7 @@ async def test_vision_reroute_and_friendly_error(client):
             "/v1/chat/completions", headers=api_headers, json=virtual_image
         )
         assert virtual_rerouted.status_code == 200, virtual_rerouted.text
-        assert qwen_fake.upstream_models[-1] == "qwen3.8-max"
+        assert glm_fake.upstream_models[-1] == "glm-5.3-flash"
 
         text_only = await client.post(
             "/v1/chat/completions",
@@ -279,7 +283,16 @@ async def test_vision_reroute_and_friendly_error(client):
             vision_models = list(
                 await session.scalars(
                     select(ModelConfig).where(
-                        ModelConfig.public_model.in_(("qwen3.8-max", "kimi-k3"))
+                        ModelConfig.public_model.in_(
+                            (
+                                "glm-5.3-flash",
+                                "qwen3.8-max",
+                                "qwen3.7-plus",
+                                "kimi-k3",
+                                "kimi-k2.7-code",
+                                "kimi-k2.7-code-highspeed",
+                            )
+                        )
                     )
                 )
             )
@@ -298,7 +311,14 @@ async def test_vision_reroute_and_friendly_error(client):
                     await session.scalars(
                         select(ModelConfig).where(
                             ModelConfig.public_model.in_(
-                                ("qwen3.8-max", "kimi-k3")
+                                (
+                                    "glm-5.3-flash",
+                                    "qwen3.8-max",
+                                    "qwen3.7-plus",
+                                    "kimi-k3",
+                                    "kimi-k2.7-code",
+                                    "kimi-k2.7-code-highspeed",
+                                )
                             )
                         )
                     )
@@ -309,6 +329,7 @@ async def test_vision_reroute_and_friendly_error(client):
     finally:
         provider_registry._providers["deepseek"] = original_deepseek
         provider_registry._providers["qwen"] = original_qwen
+        provider_registry._providers["glm"] = original_glm
 
 
 def test_payload_contains_images():
