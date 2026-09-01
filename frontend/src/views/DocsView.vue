@@ -46,27 +46,26 @@ async function copy(value: string) {
 
 const tools = [
   {
-    name: "Cursor",
-    steps: [
-      "打开 Cursor Settings，进入 Models 或 Provider 配置。",
-      "选择 OpenAI Compatible 或 Override OpenAI Base URL。",
-      "填写下方 Base URL、个人 API Key 和固定模型 ID。",
-    ],
-  },
-  {
     name: "Trae",
+    link: "https://www.trae.cn/work",
+    linkText: "下载 Trae（TRAE Work 桌面端）",
     steps: [
-      "进入 AI 模型或自定义模型设置。",
-      "Provider 选择 OpenAI Compatible。",
-      "填写 Base URL、个人 API Key，并添加固定模型 ID team-coding。",
+      "打开设置：进入 TRAE Work 的「设置 → 模型」页面。",
+      "添加模型：点击「添加模型」，API 格式选择「OpenAI Chat Completions 格式」。",
+      "填写参数：请求地址填上方 Base URL，模型 ID 填 team-coding，API 密钥填工作台生成的个人 Key。",
+      "保存测试：点击「添加模型」保存，选择 team-coding 发送一条短消息验证连接。",
+      "切换模型：回到工作台选择需要使用的真实模型，下一次调用生效。",
     ],
   },
   {
-    name: "Qoder",
+    name: "WorkBuddy",
+    link: "https://www.workbuddy.cn/events/invite?inviteCode=nr0vcytear025",
+    linkText: "获取 WorkBuddy",
     steps: [
-      "进入模型服务配置，添加自定义 OpenAI Compatible 服务。",
-      "填写网关 Base URL 和个人 API Key。",
-      "模型 ID 固定填写 team-coding，真实模型在网站工作台选择。",
+      "打开设置：进入 WorkBuddy 的「设置 → 模型」页面。",
+      "添加模型：点击「添加模型」，按上方统一配置填写自定义模型（OpenAI Compatible）参数。",
+      "保存使用：保存后选择 team-coding 即可开始对话。",
+      "切换模型：真实模型在工作台选择，下一次调用生效。",
     ],
   },
 ];
@@ -74,7 +73,7 @@ const tools = [
 
 <template>
   <div>
-    <div class="page-heading"><div><h1>接入指南</h1><p>Cursor、Trae、Qoder 统一使用 OpenAI Compatible 配置。</p></div></div>
+    <div class="page-heading"><div><h1>接入指南</h1><p>Trae、WorkBuddy 统一使用 OpenAI Compatible 配置。</p></div></div>
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
@@ -99,6 +98,7 @@ const tools = [
           <ol class="guide-steps">
             <li v-for="step in tool.steps" :key="step">{{ step }}</li>
           </ol>
+          <el-link :href="tool.link" target="_blank" type="primary" class="tool-link">{{ tool.linkText }}</el-link>
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -118,7 +118,7 @@ const tools = [
       class="section-card"
       type="success"
       :closable="false"
-      title="Trae、Cursor、Qoder 只需配置一次 team-coding；以后在工作台切换真实模型即可。"
+      title="Trae、WorkBuddy 只需配置一次 team-coding；以后在工作台切换真实模型即可。"
     />
   </div>
 </template>

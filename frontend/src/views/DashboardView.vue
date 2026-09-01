@@ -221,7 +221,7 @@ onMounted(load);
             <code>{{ baseUrl }}</code>
             <el-button link @click="copy(baseUrl)">复制</el-button>
           </div>
-          <p>在 Cursor、Trae、Qoder、Continue、Cline 中使用此地址。</p>
+          <p>在 Trae、WorkBuddy 等工具中使用此地址。</p>
         </el-card>
       </el-col>
       <el-col :span="14">

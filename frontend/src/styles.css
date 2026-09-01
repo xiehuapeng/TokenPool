@@ -97,6 +97,7 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .el-card.hero-card .el-button { color: #8fc1ff; }
 .steps { margin: 0; padding-left: 23px; line-height: 2.5; color: #475467; }
 .guide-steps { margin: 6px 0; padding-left: 24px; line-height: 2.2; color: #475467; }
+.tool-link { margin-top: 12px; }
 .model-pills { display: flex; flex-wrap: wrap; gap: 10px; min-height: 42px; align-items: center; }
 .model-select-popper .el-select-dropdown__item {
   height: auto;
