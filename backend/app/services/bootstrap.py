@@ -132,11 +132,11 @@ SEED_PRICINGS: dict[str, dict] = {
         "output_price": Decimal("36"),
         "note": "阿里云百炼官网价（北京地域），不分档",
     },
-    "qwen3.7-max": {
-        "input_price": Decimal("6"),
-        "cached_input_price": Decimal("1.2"),
-        "output_price": Decimal("18"),
-        "note": "阿里云百炼限时5折价（北京地域，输入/输出/缓存同折），原价12/2.4/36，官方未公布折扣截止时间",
+    "qwen3.8-flash": {
+        "input_price": Decimal("0.8"),
+        "cached_input_price": Decimal("0.1"),
+        "output_price": Decimal("2.7"),
+        "note": "阿里云百炼官网价（北京地域），不分档",
     },
     "qwen3.7-plus": {
         "input_price": Decimal("1.6"),
@@ -364,8 +364,8 @@ async def seed_initial_data() -> None:
             seed_models = (
                 (
                     ("qwen3.8-max", "Qwen 3.8 Max"),
+                    ("qwen3.8-flash", "Qwen 3.8 Flash"),
                     ("qwen3.7-plus", "Qwen 3.7 Plus"),
-                    ("qwen3.7-max", "Qwen 3.7 Max"),
                 )
                 if code == "qwen"
                 else (
@@ -446,6 +446,31 @@ async def seed_initial_data() -> None:
                 )
             )
             await session.delete(retired_kimi)
+
+        # qwen3.7-max已下线，由qwen3.8-flash/3.8-max取代。升级时迁移用户
+        # 偏好并删除历史模型配置，避免继续展示或路由到已退役的模型名。
+        retired_qwen_max = await session.scalar(
+            select(ModelConfig).where(ModelConfig.public_model == "qwen3.7-max")
+        )
+        if retired_qwen_max is not None:
+            replacement = await session.scalar(
+                select(ModelConfig).where(
+                    ModelConfig.public_model == "qwen3.8-max"
+                )
+            )
+            await session.execute(
+                update(User)
+                .where(User.preferred_model_id == retired_qwen_max.id)
+                .values(
+                    preferred_model_id=(replacement.id if replacement else None)
+                )
+            )
+            await session.execute(
+                delete(UserModelPermission).where(
+                    UserModelPermission.model_config_id == retired_qwen_max.id
+                )
+            )
+            await session.delete(retired_qwen_max)
 
         # 定价种子：仅首次插入，已存在（含管理员改过的）不覆盖。
         for public_model, pricing_data in SEED_PRICINGS.items():

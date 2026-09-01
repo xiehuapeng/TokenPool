@@ -47,6 +47,26 @@ function hasPeakPricing(pricing: any) {
   );
 }
 
+function hasTierPricing(pricing: any) {
+  return (
+    pricing &&
+    pricing.tier_threshold_tokens != null &&
+    (pricing.high_input_price != null || pricing.high_output_price != null)
+  );
+}
+
+function tierThresholdText(tokens: number) {
+  return tokens % 1024 === 0 ? `${tokens / 1024}K` : String(tokens);
+}
+
+function tierLine(pricing: any) {
+  return `超长(>${tierThresholdText(pricing.tier_threshold_tokens)})：输入 ${formatPrice(
+    pricing.high_input_price
+  )} / 缓存 ${formatPrice(pricing.high_cached_input_price)} / 输出 ${formatPrice(
+    pricing.high_output_price
+  )}`;
+}
+
 function isPeakNow() {
   const now = new Date();
   const beijing = new Date(
@@ -64,8 +84,8 @@ function priceLines(pricing: any) {
   const line = `输入 ${formatPrice(pricing.input_price)} / 缓存 ${formatPrice(
     pricing.cached_input_price
   )} / 输出 ${formatPrice(pricing.output_price)}`;
-  if (hasPeakPricing(pricing)) {
-    return peakNow.value
+  const lines = hasPeakPricing(pricing)
+    ? peakNow.value
       ? [
           `高峰：输入 ${formatPrice(
             pricing.peak_input_price
@@ -73,9 +93,12 @@ function priceLines(pricing: any) {
             pricing.peak_output_price
           )}`,
         ]
-      : [`空闲：${line}`];
+      : [`空闲：${line}`]
+    : [line];
+  if (hasTierPricing(pricing)) {
+    lines.push(tierLine(pricing));
   }
-  return [line];
+  return lines;
 }
 
 function modalityText(row: any) {
@@ -181,7 +204,7 @@ onMounted(refreshModels);
                 <div
                   v-if="
                     discountLabel(row.pricing.note) ||
-                    row.pricing.tier_threshold_tokens != null ||
+                    hasTierPricing(row.pricing) ||
                     hasPeakPricing(row.pricing)
                   "
                   class="model-price-tags"
@@ -208,13 +231,15 @@ onMounted(refreshModels);
                       {{ peakNow ? "高峰价生效中" : "空闲价生效中" }}
                     </el-tag>
                   </el-tooltip>
-                  <el-tag
-                    v-if="row.pricing.tier_threshold_tokens != null"
-                    size="small"
-                    effect="plain"
+                  <el-tooltip
+                    v-if="hasTierPricing(row.pricing)"
+                    :content="`输入超过 ${tierThresholdText(row.pricing.tier_threshold_tokens)} Token 后按超长档计价，详见价格行`"
+                    placement="top"
                   >
-                    超长上下文加价
-                  </el-tag>
+                    <el-tag size="small" effect="plain">
+                      超长上下文加价
+                    </el-tag>
+                  </el-tooltip>
                 </div>
               </template>
               <el-tag v-else size="small" type="warning" effect="plain">

@@ -264,21 +264,21 @@ MODEL_DESCRIPTIONS = {
     "kimi-k2.7-code": "仓库级编程、多文件修改、重构、调试",
     "kimi-k2.7-code-highspeed": "极速编程、实时修改、结对编程、低延迟",
     "qwen3.8-max": "专业分析、高质量报告、金融、复杂任务",
+    "qwen3.8-flash": "轻量日常、即时问答、批量处理、高频调用",
     "qwen3.7-plus": "日常办公、材料写作、总结、数据整理",
-    "qwen3.7-max": "文本办公、长文档、编程、旧任务兼容",
 }
 
 MODEL_INPUT_CONTEXT: dict[str, dict] = {
     "deepseek-v4-flash": {"modalities": ["文本"], "context_window": "1M"},
     "deepseek-v4-pro": {"modalities": ["文本"], "context_window": "1M"},
-    "glm-5.3-flash": {"modalities": ["视频", "图片", "文本", "文件"], "context_window": "1M"},
+    "glm-5.3-flash": {"modalities": ["图片", "文本"], "context_window": "1M"},
     "glm-5.3": {"modalities": ["文本"], "context_window": "1M"},
-    "qwen3.8-max": {"modalities": ["图片", "视频", "文本"], "context_window": "1M"},
-    "qwen3.7-plus": {"modalities": ["图片", "视频", "文本"], "context_window": "1M"},
-    "qwen3.7-max": {"modalities": ["文本"], "context_window": "1M"},
-    "kimi-k3": {"modalities": ["图片", "视频", "文本"], "context_window": "1M"},
-    "kimi-k2.7-code": {"modalities": ["图片", "视频", "文本"], "context_window": "256K"},
-    "kimi-k2.7-code-highspeed": {"modalities": ["图片", "视频", "文本"], "context_window": "256K"},
+    "qwen3.8-max": {"modalities": ["图片", "文本"], "context_window": "1M"},
+    "qwen3.8-flash": {"modalities": ["文本"], "context_window": "1M"},
+    "qwen3.7-plus": {"modalities": ["图片", "文本"], "context_window": "1M"},
+    "kimi-k3": {"modalities": ["图片", "文本"], "context_window": "1M"},
+    "kimi-k2.7-code": {"modalities": ["图片", "文本"], "context_window": "256K"},
+    "kimi-k2.7-code-highspeed": {"modalities": ["图片", "文本"], "context_window": "256K"},
 }
 
 
@@ -298,6 +298,8 @@ def _pricing_view(pricing: ModelPricing | None) -> dict | None:
         "peak_output_price": _num(pricing.peak_output_price),
         "tier_threshold_tokens": pricing.tier_threshold_tokens,
         "high_input_price": _num(pricing.high_input_price),
+        "high_cached_input_price": _num(pricing.high_cached_input_price),
+        "high_output_price": _num(pricing.high_output_price),
         "enabled": pricing.enabled,
         "note": pricing.note,
     }
