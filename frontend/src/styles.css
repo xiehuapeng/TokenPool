@@ -146,6 +146,12 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   font-size: 16px;
   font-weight: 700;
 }
+.model-name-cell {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
 .selected-model-code { margin-left: 12px; }
 .provider-model-list {
   min-height: 120px;

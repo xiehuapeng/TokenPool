@@ -171,7 +171,22 @@ onMounted(refreshModels);
           </div>
         </template>
         <el-table :data="group.models" :row-class-name="rowClassName">
-          <el-table-column prop="id" label="模型" min-width="180" />
+          <el-table-column prop="id" label="模型" min-width="180">
+            <template #default="{ row }">
+              <div class="model-name-cell">
+                <span>{{ row.id }}</span>
+                <el-tag
+                  v-if="row.id === 'glm-5.3-flash'"
+                  size="small"
+                  type="success"
+                  effect="light"
+                  round
+                >
+                  推荐
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column
             prop="description"
             label="定位与适用场景"
