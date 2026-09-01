@@ -12,6 +12,7 @@ from app.utils.time import utc_now
 VISION_CAPABLE_MODELS = {
     "glm-5.3-flash",
     "qwen3.8-max",
+    "qwen3.8-flash",
     "qwen3.7-plus",
     "kimi-k3",
     "kimi-k2.7-code",

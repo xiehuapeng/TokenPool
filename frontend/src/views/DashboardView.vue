@@ -23,26 +23,6 @@ const gatewayModel = ref("team-coding");
 const savingModel = ref(false);
 const savingKeyModelId = ref<number | null>(null);
 const keyLimitReached = computed(() => keys.value.length >= maxApiKeys.value);
-const modelUsageDescriptions: Record<string, string> = {
-  "glm-5.3": "智谱旗舰编码模型，复杂编程首选",
-  "glm-5.3-flash": "GLM-5.3 高速轻量版，响应快价格低",
-  "glm-5.2": "上代 GLM 旗舰，能力稳定均衡",
-  "glm-5.1": "上代 GLM 旗舰，编码推理良好",
-  "glm-5": "GLM 5 基础旗舰，常规编码对话",
-  "glm-5-turbo": "GLM-5 加速版，高频轻量调用",
-  "glm-4.7": "高性价比档位，日常任务够用",
-  "glm-4.6": "均衡型模型，工具调用稳定",
-  "glm-4.5": "标准版，低成本兜底场景",
-  "glm-4.5-air": "轻量版，速度最快成本最低",
-  "deepseek-v4-pro": "适合复杂任务与深度推理",
-  "deepseek-v4-flash": "适合日常问答与简单任务",
-  "qwen3.8-max": "适合复杂任务与深度分析",
-  "qwen3.7-max": "适合较复杂的综合任务",
-  "qwen3.7-plus": "适合日常轻量任务",
-  "kimi-k3": "适合复杂工程与深度推理",
-  "kimi-k2.7-code": "适合日常编程与长程任务",
-  "kimi-k2.7-code-highspeed": "同等编程能力，响应更快",
-};
 const activeModels = computed(() =>
   models.value.filter((item) => item.status === "enabled"),
 );
@@ -59,9 +39,6 @@ const modelGroups = computed(() => {
     models: providerModels,
   }));
 });
-function modelUsageDescription(modelId: string) {
-  return modelUsageDescriptions[modelId] || "";
-}
 const curlExample = computed(() => `curl ${baseUrl.value}/chat/completions \\
   -H "Authorization: Bearer ${generatedKey.value || "sk-team-your-key"}" \\
   -H "Content-Type: application/json" \\
@@ -254,13 +231,22 @@ onMounted(load);
               >
                 <div class="model-select-option-content">
                   <span class="model-select-option-name">
-                    {{ model.display_name || model.id }}
+                    <span>{{ model.display_name || model.id }}</span>
+                    <el-tag
+                      v-if="model.recommended"
+                      size="small"
+                      type="success"
+                      effect="light"
+                      round
+                    >
+                      推荐
+                    </el-tag>
                   </span>
                   <span
-                    v-if="modelUsageDescription(model.id)"
+                    v-if="model.description"
                     class="model-select-option-description"
                   >
-                    {{ modelUsageDescription(model.id) }}
+                    {{ model.description }}
                   </span>
                 </div>
               </el-option>

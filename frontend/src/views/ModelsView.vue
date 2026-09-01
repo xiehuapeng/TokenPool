@@ -176,7 +176,7 @@ onMounted(refreshModels);
               <div class="model-name-cell">
                 <span>{{ row.id }}</span>
                 <el-tag
-                  v-if="row.id === 'glm-5.3-flash'"
+                  v-if="row.recommended"
                   size="small"
                   type="success"
                   effect="light"

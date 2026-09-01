@@ -710,5 +710,15 @@ async def test_user_usage_and_models_detail(client):
         assert deepseek_model["pricing"] is not None
         assert "input_price" in deepseek_model["pricing"]
         assert deepseek_model["description"]
+        assert deepseek_model["recommended"] is False
+        glm_flash = next(
+            item for item in models_data if item["id"] == "glm-5.3-flash"
+        )
+        assert glm_flash["recommended"] is True
+        qwen_flash = next(
+            item for item in models_data if item["id"] == "qwen3.8-flash"
+        )
+        assert qwen_flash["modalities"] == ["图片", "文本"]
+        assert "视觉理解" in qwen_flash["description"]
     finally:
         provider_registry._providers["deepseek"] = original_provider

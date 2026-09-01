@@ -287,6 +287,7 @@ async def test_vision_reroute_and_friendly_error(client):
                             (
                                 "glm-5.3-flash",
                                 "qwen3.8-max",
+                                "qwen3.8-flash",
                                 "qwen3.7-plus",
                                 "kimi-k3",
                                 "kimi-k2.7-code",
@@ -314,6 +315,7 @@ async def test_vision_reroute_and_friendly_error(client):
                                 (
                                     "glm-5.3-flash",
                                     "qwen3.8-max",
+                                    "qwen3.8-flash",
                                     "qwen3.7-plus",
                                     "kimi-k3",
                                     "kimi-k2.7-code",

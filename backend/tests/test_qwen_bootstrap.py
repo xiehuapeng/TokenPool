@@ -43,7 +43,7 @@ async def test_qwen_target_models_are_enabled_when_key_is_configured(client):
     flash = next(
         model for model in models if model.public_model == "qwen3.8-flash"
     )
-    assert flash.capabilities.get("vision") is not True
+    assert flash.capabilities.get("vision") is True
 
 
 @pytest.mark.asyncio

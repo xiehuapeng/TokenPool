@@ -113,6 +113,9 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   justify-content: center;
 }
 .model-select-option-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   color: var(--el-text-color-primary);
   font-size: 14px;
