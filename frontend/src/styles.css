@@ -277,7 +277,18 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   grid-template-columns: 150px repeat(4, minmax(145px, 1fr));
 }
 .log-filter-bar .el-input { grid-column: span 2; }
-.usage-filter-actions { display: flex; align-items: center; }
+.usage-filter-actions { display: flex; align-items: center; gap: 12px; }
+.usage-filter-actions .auto-refresh-switch { margin-right: 4px; }
+.usage-filter-actions .el-button + .el-button { margin-left: 0; }
+.key-user-group { margin-bottom: 22px; }
+.key-user-group:last-child { margin-bottom: 0; }
+.key-user-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.key-user-heading span { color: #667085; font-size: 13px; }
 .usage-detail-toolbar {
   display: flex;
   align-items: center;

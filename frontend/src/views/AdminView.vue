@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import "element-plus/es/components/message/style/css";
 import "element-plus/es/components/message-box/style/css";
@@ -101,6 +101,34 @@ const maxUserTokens = computed(() =>
     ...stats.value.by_user.map((item: any) => Number(item.total_tokens || 0)),
   ),
 );
+
+const keyGroups = computed(() => {
+  const groups = new Map<
+    string,
+    {
+      username: string;
+      keys: any[];
+      activeCount: number;
+      totalCalls: number;
+      totalCost: number;
+    }
+  >();
+  for (const key of keys.value) {
+    const group = groups.get(key.username) || {
+      username: key.username,
+      keys: [] as any[],
+      activeCount: 0,
+      totalCalls: 0,
+      totalCost: 0,
+    };
+    group.keys.push(key);
+    if (key.status === "active") group.activeCount += 1;
+    group.totalCalls += Number(key.total_calls || 0);
+    group.totalCost += Number(key.total_cost || 0);
+    groups.set(key.username, group);
+  }
+  return Array.from(groups.values());
+});
 
 const modelGroups = computed(() => {
   const providerOrder = new Map(
@@ -273,6 +301,36 @@ async function toggleInviteCode(row: any) {
   await adminApi.setInviteCodeStatus(row.id, next);
   ElMessage.success(next === "active" ? "邀请码已启用" : "邀请码已停用");
   await loadAll();
+}
+
+async function deleteInviteCode(row: any) {
+  const bound = Number(row.bound_users || 0);
+  if (bound > 0) {
+    ElMessage.warning(
+      `该邀请码仍有 ${bound} 个绑定用户（${(row.bound_usernames || []).join("、")}），需先转移绑定后才能删除`
+    );
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定删除邀请码 ${row.code_prefix}？删除后该码无法继续用于注册。`,
+      "删除邀请码",
+      {
+        type: "warning",
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+      }
+    );
+  } catch {
+    return;
+  }
+  try {
+    await adminApi.deleteInviteCode(row.id);
+    ElMessage.success("邀请码已删除");
+    await loadAll();
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  }
 }
 
 async function toggleUser(row: any) {
@@ -744,7 +802,30 @@ async function syncProviderModels() {
   }
 }
 
-onMounted(loadAll);
+const autoRefresh = ref(true);
+const AUTO_REFRESH_INTERVAL_MS = 30000;
+let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
+
+async function autoRefreshTick() {
+  if (!autoRefresh.value || document.hidden) return;
+  if (activeTab.value === "stats") {
+    if (!statsLoading.value) await loadStats();
+  } else if (activeTab.value === "logs") {
+    if (!logsLoading.value) await loadLogs();
+  }
+}
+
+onMounted(() => {
+  void loadAll();
+  autoRefreshTimer = setInterval(() => {
+    void autoRefreshTick();
+  }, AUTO_REFRESH_INTERVAL_MS);
+});
+
+onUnmounted(() => {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+});
+
 </script>
 
 <template>
@@ -821,6 +902,22 @@ onMounted(loadAll);
                 {{ row.usage_count }} / {{ row.max_uses ?? "不限" }}
               </template>
             </el-table-column>
+            <el-table-column label="绑定用户" min-width="140">
+              <template #default="{ row }">
+                <el-tooltip v-if="row.bound_users" placement="top">
+                  <template #content>
+                    <div
+                      v-for="name in row.bound_usernames"
+                      :key="name"
+                    >
+                      {{ name }}
+                    </div>
+                  </template>
+                  <span>{{ row.bound_users }} 人</span>
+                </el-tooltip>
+                <span v-else>—</span>
+              </template>
+            </el-table-column>
             <el-table-column label="过期时间" min-width="190">
               <template #default="{ row }">
                 {{ formatBeijingTime(row.expires_at, "永久有效") }}
@@ -858,40 +955,81 @@ onMounted(loadAll);
                 <el-button link @click="toggleInviteCode(row)">
                   {{ row.status === "active" ? "停用" : "启用" }}
                 </el-button>
+                <el-button
+                  link
+                  :type="row.bound_users ? 'info' : 'danger'"
+                  :disabled="row.bound_users > 0"
+                  @click="deleteInviteCode(row)"
+                >
+                  删除
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
 
         <el-tab-pane label="API Key" name="keys">
-          <el-table :data="keys">
-            <el-table-column prop="username" label="用户" />
-            <el-table-column prop="name" label="名称" />
-            <el-table-column prop="key_prefix" label="Key 前缀" min-width="190" />
-            <el-table-column label="创建时间" min-width="190">
-              <template #default="{ row }">
-                {{ formatBeijingTime(row.created_at) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="最后使用" min-width="190">
-              <template #default="{ row }">
-                {{ formatBeijingTime(row.last_used_at, "从未使用") }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" />
-            <el-table-column label="操作">
-              <template #default="{ row }">
-                <el-button
-                  v-if="row.status === 'active'"
-                  link
-                  type="danger"
-                  @click="revokeKey(row)"
-                >
-                  吊销
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+          <el-empty v-if="!keyGroups.length" description="暂无 API Key" />
+          <div
+            v-for="group in keyGroups"
+            :key="group.username"
+            class="key-user-group"
+          >
+            <div class="key-user-heading">
+              <strong>{{ group.username }}</strong>
+              <span>
+                {{ group.keys.length }} 个 Key（{{ group.activeCount }} 个启用）
+                · 累计调用 {{ formatTokens(group.totalCalls) }} 次
+                · 费用 {{ formatCost(group.totalCost) }}
+              </span>
+            </div>
+            <el-table :data="group.keys">
+              <el-table-column prop="name" label="名称" />
+              <el-table-column prop="key_prefix" label="Key 前缀" min-width="190" />
+              <el-table-column label="创建时间" min-width="170">
+                <template #default="{ row }">
+                  {{ formatBeijingTime(row.created_at) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="最后使用" min-width="170">
+                <template #default="{ row }">
+                  {{ formatBeijingTime(row.last_used_at, "从未使用") }}
+                </template>
+              </el-table-column>
+              <el-table-column label="累计调用" width="100" align="right">
+                <template #default="{ row }">
+                  {{ formatTokens(row.total_calls) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="费用" width="110" align="right">
+                <template #default="{ row }">
+                  {{ formatCost(row.total_cost) }}
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag
+                    :type="row.status === 'active' ? 'success' : 'info'"
+                    effect="plain"
+                  >
+                    {{ row.status === "active" ? "启用" : "已吊销" }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="90">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="row.status === 'active'"
+                    link
+                    type="danger"
+                    @click="revokeKey(row)"
+                  >
+                    吊销
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="模型管理" name="models">
@@ -1304,6 +1442,11 @@ onMounted(loadAll);
               @keyup.enter="applyLogFilters"
             />
             <div class="usage-filter-actions">
+              <el-switch
+                v-model="autoRefresh"
+                active-text="30s 自动刷新"
+                class="auto-refresh-switch"
+              />
               <el-button type="primary" :loading="logsLoading" @click="applyLogFilters">
                 查询
               </el-button>

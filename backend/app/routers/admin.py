@@ -95,6 +95,16 @@ async def list_invite_codes(_admin: Admin, session: DbSession) -> list[dict]:
     codes = await session.scalars(
         select(InviteCode).order_by(InviteCode.created_at.desc())
     )
+    bindings = (
+        await session.execute(
+            select(User.invite_code_id, User.username)
+            .where(User.invite_code_id.isnot(None))
+            .order_by(User.created_at)
+        )
+    ).all()
+    bound_map: dict[int, list[str]] = {}
+    for invite_code_id, username in bindings:
+        bound_map.setdefault(invite_code_id, []).append(username)
     return [
         {
             "id": item.id,
@@ -103,6 +113,8 @@ async def list_invite_codes(_admin: Admin, session: DbSession) -> list[dict]:
             "status": item.status,
             "max_uses": item.max_uses,
             "usage_count": item.usage_count,
+            "bound_users": len(bound_map.get(item.id, [])),
+            "bound_usernames": bound_map.get(item.id, []),
             "expires_at": beijing_iso(item.expires_at),
             "created_at": beijing_iso(item.created_at),
             "can_reveal": bool(item.code_ciphertext),
@@ -187,6 +199,31 @@ async def update_invite_code_status(
     return {"id": item.id, "status": item.status}
 
 
+@router.delete("/invite-codes/{invite_code_id}")
+async def delete_invite_code(
+    invite_code_id: int, _admin: Admin, session: DbSession
+) -> dict:
+    item = await session.get(InviteCode, invite_code_id)
+    if item is None:
+        raise GatewayError(
+            "邀请码不存在", status_code=404, code="invite_code_not_found"
+        )
+    bound_count = await session.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(User.invite_code_id == invite_code_id)
+    )
+    if bound_count:
+        raise GatewayError(
+            f"仍有 {bound_count} 个用户绑定在该邀请码上，请先转移绑定后再删除",
+            status_code=409,
+            code="invite_code_in_use",
+        )
+    await session.delete(item)
+    await session.commit()
+    return {"id": invite_code_id, "deleted": True}
+
+
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def create_user(body: UserCreate, _admin: Admin, session: DbSession) -> dict:
     existing = await session.scalar(
@@ -230,10 +267,20 @@ async def update_user_status(
 
 @router.get("/api-keys")
 async def list_keys(_admin: Admin, session: DbSession) -> list[dict]:
+    usage_agg = (
+        select(
+            UsageLog.api_key_id.label("api_key_id"),
+            func.count().label("total_calls"),
+            func.coalesce(func.sum(UsageLog.cost), 0).label("total_cost"),
+        )
+        .group_by(UsageLog.api_key_id)
+        .subquery()
+    )
     rows = await session.execute(
-        select(ApiKey, User)
+        select(ApiKey, User, usage_agg.c.total_calls, usage_agg.c.total_cost)
         .join(User, User.id == ApiKey.user_id)
-        .order_by(ApiKey.created_at.desc())
+        .outerjoin(usage_agg, usage_agg.c.api_key_id == ApiKey.id)
+        .order_by(User.username, ApiKey.created_at.desc())
     )
     return [
         {
@@ -244,8 +291,10 @@ async def list_keys(_admin: Admin, session: DbSession) -> list[dict]:
             "status": key.status,
             "created_at": beijing_iso(key.created_at),
             "last_used_at": beijing_iso(key.last_used_at),
+            "total_calls": int(total_calls or 0),
+            "total_cost": float(total_cost or 0),
         }
-        for key, user in rows
+        for key, user, total_calls, total_cost in rows
     ]
 
 

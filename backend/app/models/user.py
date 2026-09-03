@@ -22,6 +22,11 @@ class User(TimestampMixin, Base):
         ForeignKey("model_configs.id", ondelete="SET NULL"),
         nullable=True,
     )
+    invite_code_id: Mapped[int | None] = mapped_column(
+        ForeignKey("invite_codes.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     api_keys: Mapped[list["ApiKey"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

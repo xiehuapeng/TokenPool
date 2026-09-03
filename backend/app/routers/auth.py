@@ -77,6 +77,7 @@ async def register(body: RegisterRequest, session: DbSession) -> LoginResponse:
         password_hash=await asyncio.to_thread(hash_password, body.password),
         status="active",
         is_admin=False,
+        invite_code_id=invite.id,
     )
     invite.usage_count += 1
     session.add(user)

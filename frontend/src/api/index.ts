@@ -86,6 +86,8 @@ export const adminApi = {
     http.get<{ value: string }>(`/api/admin/invite-codes/${id}/secret`),
   setInviteCodeStatus: (id: number, status: string) =>
     http.patch(`/api/admin/invite-codes/${id}/status`, { status }),
+  deleteInviteCode: (id: number) =>
+    http.delete(`/api/admin/invite-codes/${id}`),
   setUserStatus: (id: number, status: string) =>
     http.patch(`/api/admin/users/${id}/status`, { status }),
   keys: () => http.get("/api/admin/api-keys"),
