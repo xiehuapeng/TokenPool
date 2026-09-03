@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from typing import Any, AsyncIterator
 
 import httpx
@@ -35,6 +36,8 @@ def _upstream_error(response: httpx.Response, body: bytes) -> GatewayError:
 
 
 class GLMStream(ProviderStream):
+    _IGNORED_EVENT_TYPES = frozenset({"progress_notice", "context_usage"})
+
     def __init__(self, client: httpx.AsyncClient, response: httpx.Response) -> None:
         self.client = client
         self.response = response
@@ -43,13 +46,29 @@ class GLMStream(ProviderStream):
             response.headers.get("x-request-id")
             or response.headers.get("x-log-id")
         )
+        self._ignored_event_counts: Counter[str] = Counter()
+        self._invalid_json_count = 0
+        self._non_object_data_count = 0
+
+    @property
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "ignored_sse_events": dict(sorted(self._ignored_event_counts.items())),
+            "invalid_json_events": self._invalid_json_count,
+            "non_object_data_events": self._non_object_data_count,
+        }
 
     async def events(self) -> AsyncIterator[StreamEvent]:
+        event_type: str | None = None
         async for line in self.response.aiter_lines():
             if not line:
+                event_type = None
                 continue
             if line.startswith(":"):
                 yield StreamEvent(comment=line)
+                continue
+            if line.startswith("event:"):
+                event_type = line[6:].strip()
                 continue
             if not line.startswith("data:"):
                 continue
@@ -57,10 +76,18 @@ class GLMStream(ProviderStream):
             if value == "[DONE]":
                 yield StreamEvent(done=True)
                 return
-            try:
-                yield StreamEvent(data=json.loads(value))
-            except json.JSONDecodeError:
+            if event_type in self._IGNORED_EVENT_TYPES:
+                self._ignored_event_counts[event_type] += 1
                 continue
+            try:
+                data = json.loads(value)
+            except json.JSONDecodeError:
+                self._invalid_json_count += 1
+                continue
+            if not isinstance(data, dict):
+                self._non_object_data_count += 1
+                continue
+            yield StreamEvent(data=data)
 
     async def close(self) -> None:
         await self.response.aclose()

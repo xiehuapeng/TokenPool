@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import time
 import uuid
 from datetime import datetime
 from typing import Annotated, AsyncIterator
@@ -34,6 +36,7 @@ from app.utils.errors import GatewayError
 
 
 router = APIRouter(prefix="/v1", tags=["openai"])
+logger = logging.getLogger("tokenpool.stream")
 
 
 @router.get("/models", response_model=OpenAIModelList)
@@ -121,6 +124,7 @@ async def chat_completions(
             exc.headers["X-Request-ID"] = request_id
             raise
 
+    upstream_open_started = time.monotonic()
     try:
         upstream = await route.provider.open_chat_stream(
             payload,
@@ -139,14 +143,36 @@ async def chat_completions(
         )
         exc.headers["X-Request-ID"] = request_id
         raise
+    upstream_open_ms = round((time.monotonic() - upstream_open_started) * 1000)
 
     async def event_stream() -> AsyncIterator[bytes]:
         usage: dict | None = None
         first_token: datetime | None = None
         completed = False
         failure: Exception | None = None
+        first_event_ms: int | None = None
+        first_choices_ms: int | None = None
+        first_content_ms: int | None = None
+        first_reasoning_ms: int | None = None
+        previous_event_at: float | None = None
+        max_event_gap_ms = 0
+        event_count = 0
+        data_event_count = 0
+        content_chunk_count = 0
+        reasoning_chunk_count = 0
         try:
             async for event in upstream.events():
+                event_at = time.monotonic()
+                event_count += 1
+                elapsed_ms = round((event_at - upstream_open_started) * 1000)
+                if first_event_ms is None:
+                    first_event_ms = elapsed_ms
+                if previous_event_at is not None:
+                    max_event_gap_ms = max(
+                        max_event_gap_ms,
+                        round((event_at - previous_event_at) * 1000),
+                    )
+                previous_event_at = event_at
                 if event.comment:
                     yield f"{event.comment}\n\n".encode()
                     continue
@@ -156,8 +182,26 @@ async def chat_completions(
                     break
                 if event.data is None:
                     continue
-                if first_token is None and event.data.get("choices"):
-                    first_token = utc_now()
+                data_event_count += 1
+                choices = event.data.get("choices")
+                if choices:
+                    if first_token is None:
+                        first_token = utc_now()
+                        first_choices_ms = elapsed_ms
+                    for choice in choices:
+                        if not isinstance(choice, dict):
+                            continue
+                        delta = choice.get("delta")
+                        if not isinstance(delta, dict):
+                            continue
+                        if delta.get("content") is not None:
+                            content_chunk_count += 1
+                            if first_content_ms is None:
+                                first_content_ms = elapsed_ms
+                        if delta.get("reasoning_content") is not None:
+                            reasoning_chunk_count += 1
+                            if first_reasoning_ms is None:
+                                first_reasoning_ms = elapsed_ms
                 if event.data.get("usage"):
                     usage = event.data["usage"]
                 event.data["model"] = body.model
@@ -179,27 +223,57 @@ async def chat_completions(
             yield b"data: [DONE]\n\n"
         finally:
             async def cleanup_stream() -> None:
+                status = (
+                    "success"
+                    if completed
+                    else "failed"
+                    if failure
+                    else "client_disconnected"
+                )
                 try:
                     await upstream.close()
                 finally:
-                    await finish_usage_log(
-                        request_id,
-                        started,
-                        status=(
-                            "success"
-                            if completed
-                            else "failed"
-                            if failure
-                            else "client_disconnected"
-                        ),
-                        http_status=upstream.http_status,
-                        usage=usage,
-                        first_token_time=first_token,
-                        error_code="stream_interrupted" if failure else None,
-                        error_message=str(failure) if failure else None,
-                        upstream_request_id=upstream.upstream_request_id,
-                        model_config_id=route.model.id,
-                    )
+                    try:
+                        await finish_usage_log(
+                            request_id,
+                            started,
+                            status=status,
+                            http_status=upstream.http_status,
+                            usage=usage,
+                            first_token_time=first_token,
+                            error_code="stream_interrupted" if failure else None,
+                            error_message=str(failure) if failure else None,
+                            upstream_request_id=upstream.upstream_request_id,
+                            model_config_id=route.model.id,
+                        )
+                    finally:
+                        # Alembic configures logging during startup and disables
+                        # loggers that are not declared in alembic.ini.
+                        logger.disabled = False
+                        logger.setLevel(logging.INFO)
+                        logger.info(
+                            "stream_observation request_id=%s provider=%s "
+                            "model=%s upstream_open_ms=%s first_event_ms=%s "
+                            "first_choices_ms=%s first_reasoning_ms=%s "
+                            "first_content_ms=%s max_event_gap_ms=%s "
+                            "events=%s data_events=%s reasoning_chunks=%s "
+                            "content_chunks=%s status=%s provider_diagnostics=%s",
+                            request_id,
+                            route.provider_config.code,
+                            route.model.public_model,
+                            upstream_open_ms,
+                            first_event_ms,
+                            first_choices_ms,
+                            first_reasoning_ms,
+                            first_content_ms,
+                            max_event_gap_ms,
+                            event_count,
+                            data_event_count,
+                            reasoning_chunk_count,
+                            content_chunk_count,
+                            status,
+                            getattr(upstream, "diagnostics", {}),
+                        )
 
             await run_cancellation_safe_cleanup(
                 cleanup_stream()

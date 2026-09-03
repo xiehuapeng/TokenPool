@@ -12,6 +12,7 @@ from app.providers.base import (
     StreamEvent,
 )
 from app.providers.registry import provider_registry
+from app.routers import openai as openai_router
 from app.services.model_router import (
     ensure_reasoning_content,
     model_requires_reasoning_content,
@@ -187,7 +188,15 @@ async def test_health_and_user_key_flow(client):
 
 
 @pytest.mark.asyncio
-async def test_openai_compatible_non_stream_and_stream(client):
+async def test_openai_compatible_non_stream_and_stream(client, monkeypatch):
+    observations: list[str] = []
+
+    def capture_observation(message: str, *args) -> None:
+        rendered = message % args
+        if "stream_observation" in rendered:
+            observations.append(rendered)
+
+    monkeypatch.setattr(openai_router.logger, "info", capture_observation)
     original_provider = provider_registry._providers["deepseek"]
     fake_provider = FakeProvider()
     provider_registry._providers["deepseek"] = fake_provider
@@ -261,6 +270,11 @@ async def test_openai_compatible_non_stream_and_stream(client):
         assert '"model": "team-coding"' in text
         assert "data: [DONE]" in text
         assert fake_provider.upstream_models[-1] == "deepseek-v4-flash"
+        observation = observations[0]
+        assert stream.headers["x-request-id"] in observation
+        assert "first_content_ms=" in observation
+        assert "status=success" in observation
+        assert "你好" not in observation
 
         usage = await client.get("/api/me/usage/summary", headers=user_headers)
         assert usage.status_code == 200
