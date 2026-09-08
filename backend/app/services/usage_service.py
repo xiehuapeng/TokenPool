@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import asyncio
+import logging
 
 from sqlalchemy import func, or_, select, update
 
@@ -13,6 +15,7 @@ from app.services.pricing_service import (
 )
 from app.utils.redaction import redact_secrets
 from app.utils.time import utc_now
+from app.services.usage_runtime import UsageRuntime, current_runtime_id, release_lock
 
 
 async def create_usage_log(
@@ -31,6 +34,7 @@ async def create_usage_log(
         session.add(
             UsageLog(
                 request_id=request_id,
+                runtime_id=current_runtime_id(),
                 user_id=user_id,
                 api_key_id=api_key_id,
                 requested_model=requested_model,
@@ -142,7 +146,7 @@ async def backfill_usage_costs(*, dry_run: bool = False) -> dict:
             global_cached_sum = 0
             global_input_sum = 0
             for model, cached_sum, input_sum in rate_rows:
-                if cached_sum and input_sum:
+                if cached_sum is not None and input_sum:
                     cache_rates[model] = min(1.0, cached_sum / input_sum)
                     global_cached_sum += cached_sum
                     global_input_sum += input_sum
@@ -354,9 +358,8 @@ async def calibrate_estimated_cache_rates(
 async def recover_stale_usage_logs(max_age_minutes: int = 5) -> int:
     """Close pending calls left behind by a previous interrupted process.
 
-    Normal client disconnects are finalized by the cancellation-safe stream
-    cleanup. This startup recovery covers hard process termination, power loss,
-    and records created by older gateway versions.
+    Operator-only legacy recovery. Call only after draining old, untagged
+    processes. Startup uses process ownership instead, never an age heuristic.
     """
 
     finished = utc_now()
@@ -366,6 +369,7 @@ async def recover_stale_usage_logs(max_age_minutes: int = 5) -> int:
             await session.scalars(
                 select(UsageLog).where(
                     UsageLog.status == "pending",
+                    UsageLog.runtime_id.is_(None),
                     UsageLog.request_time < cutoff,
                 )
             )
@@ -386,3 +390,62 @@ async def recover_stale_usage_logs(max_age_minutes: int = 5) -> int:
         if stale_logs:
             await session.commit()
         return len(stale_logs)
+
+
+async def recover_abandoned_usage_logs(runtime: UsageRuntime) -> int:
+    """Finalize only requests whose same-host owner no longer holds its lock."""
+    async with SessionLocal() as session:
+        owners = list(await session.scalars(
+            select(UsageLog.runtime_id).where(
+                UsageLog.status == "pending",
+                UsageLog.runtime_id.isnot(None),
+            ).distinct()
+        ))
+    recovered = 0
+    for owner_id in owners:
+        claim = runtime.try_claim_abandoned(owner_id)
+        if claim is None:
+            continue
+        try:
+            async with SessionLocal() as session:
+                logs = list(await session.scalars(select(UsageLog).where(
+                    UsageLog.status == "pending", UsageLog.runtime_id == owner_id,
+                )))
+                finished = utc_now()
+                for usage_log in logs:
+                    started = usage_log.request_time
+                    if started.tzinfo is None:
+                        started = started.replace(tzinfo=timezone.utc)
+                    # A COMMIT sent by the old owner can finish after our read.
+                    # Never overwrite a terminal status from that transaction.
+                    result = await session.execute(
+                        update(UsageLog).where(
+                            UsageLog.id == usage_log.id,
+                            UsageLog.runtime_id == owner_id,
+                            UsageLog.status == "pending",
+                        ).values(
+                            response_time=finished,
+                            latency_ms=max(0, int((finished-started).total_seconds()*1000)),
+                            status="interrupted",
+                            error_code="abandoned_runtime_recovered",
+                            error_message="Request owner exited without a terminal status",
+                        ).execution_options(synchronize_session=False)
+                    )
+                    recovered += result.rowcount
+                if logs:
+                    await session.commit()
+        finally:
+            release_lock(claim)
+    return recovered
+
+
+async def usage_recovery_loop(runtime: UsageRuntime, interval_seconds: float = 30) -> None:
+    logger = logging.getLogger(__name__)
+    while True:
+        try:
+            recovered = await recover_abandoned_usage_logs(runtime)
+            if recovered:
+                logger.warning("Recovered %d abandoned runtime usage logs", recovered)
+        except Exception:
+            logger.exception("Unable to recover abandoned runtime usage logs")
+        await asyncio.sleep(interval_seconds)

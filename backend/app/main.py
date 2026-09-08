@@ -11,8 +11,10 @@ from app.database.session import engine
 from app.routers import admin, auth, health, me, openai
 from app.services.bootstrap import seed_initial_data
 from app.services.model_sync import automatic_model_sync_loop
-from app.services.usage_service import recover_stale_usage_logs
+from app.services.usage_runtime import UsageRuntime
+from app.services.usage_service import usage_recovery_loop
 from app.utils.errors import GatewayError, gateway_error_handler
+from app.utils.async_cleanup import drain_cleanup_tasks
 from app.utils.redaction import configure_secret_redaction
 
 
@@ -26,13 +28,11 @@ async def lifespan(_app: FastAPI):
 
     if settings.auto_migrate:
         await upgrade_database()
-    await seed_initial_data()
-    recovered_usage_logs = await recover_stale_usage_logs()
-    if recovered_usage_logs:
-        logger.warning(
-            "Recovered %d stale pending usage log(s)",
-            recovered_usage_logs,
-        )
+    if settings.seed_on_startup:
+        await seed_initial_data()
+    runtime = UsageRuntime(settings.usage_runtime_dir)
+    runtime.start()
+    recovery_task = asyncio.create_task(usage_recovery_loop(runtime), name="usage-recovery")
     model_sync_task: asyncio.Task | None = None
     if settings.model_sync_enabled:
         model_sync_task = asyncio.create_task(
@@ -42,10 +42,15 @@ async def lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        recovery_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await recovery_task
         if model_sync_task is not None:
             model_sync_task.cancel()
             with suppress(asyncio.CancelledError):
                 await model_sync_task
+        await drain_cleanup_tasks()
+        runtime.stop()
         await engine.dispose()
 
 

@@ -163,6 +163,9 @@ async def reconcile_aliyun_daily_bill(
     and output catalog charges are allocated independently in proportion to each
     call's corresponding token count, so the reconciled daily total equals the
     provider bill even when gateway and provider token scopes differ slightly.
+    Mixed historical and measured costs for the same day/model are rejected
+    before changing any logs: the whole-day bill cannot be safely attributed to
+    only the historical subset without a separately scoped provider bill.
     """
 
     async with SessionLocal() as session:
@@ -172,17 +175,40 @@ async def reconcile_aliyun_daily_bill(
                 select(UsageLog).where(
                     UsageLog.provider == "qwen",
                     UsageLog.model.in_(models),
-                    UsageLog.status == "success",
-                    UsageLog.cached_input_tokens.is_(None),
                 )
             )
         )
 
         by_key: dict[tuple[date, str], list[UsageLog]] = {}
+        excluded_by_key: dict[tuple[date, str], list[UsageLog]] = {}
         for log in logs:
-            if log.request_time is None or log.cost_source == "realtime":
+            if log.request_time is None:
                 continue
-            by_key.setdefault((_beijing_date(log.request_time), log.model), []).append(log)
+            key = (_beijing_date(log.request_time), log.model)
+            if (
+                log.status == "success"
+                and log.cached_input_tokens is None
+                and log.cost_source != "realtime"
+            ):
+                by_key.setdefault(key, []).append(log)
+            elif (
+                log.cost is not None
+                or log.cached_input_tokens is not None
+                or log.input_tokens
+                or log.output_tokens
+            ):
+                excluded_by_key.setdefault(key, []).append(log)
+
+        for bill in bills:
+            key = (bill.billing_date, bill.model)
+            if by_key.get(key) and excluded_by_key.get(key):
+                raise ValueError(
+                    "Daily bill reconciliation blocked for "
+                    f"{bill.billing_date.isoformat()}/{bill.model}: mixed cost "
+                    "or token telemetry sources. Supply a separately scoped "
+                    "provider bill before allocating historical costs. "
+                    "No records were changed."
+                )
 
         updated = 0
         before_cost = Decimal("0")

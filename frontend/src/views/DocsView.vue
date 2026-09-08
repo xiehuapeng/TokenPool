@@ -5,11 +5,13 @@ import "element-plus/es/components/message/style/css";
 import { meApi } from "@/api";
 import { errorMessage } from "@/api/http";
 import { copyText } from "@/utils/clipboard";
+import { chatCompletionsUrl } from "@/utils/requestUrls";
 
-const baseUrl = ref("http://localhost:8000/v1");
+const baseUrl = ref("");
+const fullRequestUrl = computed(() => chatCompletionsUrl(baseUrl.value));
 const gatewayModel = ref("team-coding");
 const selectedModel = ref("");
-const curl = computed(() => `curl ${baseUrl.value}/chat/completions \\
+const curl = computed(() => `curl ${fullRequestUrl.value} \\
   -H "Authorization: Bearer sk-team-xxxx" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -52,7 +54,8 @@ const tools = [
     steps: [
       "打开设置：进入 TRAE Work 的「设置 → 模型」页面。",
       "添加模型：点击「添加模型」，API 格式选择「OpenAI Chat Completions 格式」。",
-      "填写参数：请求地址填上方 Base URL，模型 ID 填 team-coding，API 密钥填工作台生成的个人 Key。",
+      "填写地址：开启「完整 URL」时，复制上方完整 URL（以 /v1/chat/completions 结尾）；关闭时，复制 Base URL（以 /v1 结尾），由 TRAE 拼接路径。",
+      "填写其余参数：模型 ID 填 team-coding，API 密钥填工作台生成的个人 Key。",
       "保存测试：点击「添加模型」保存，选择 team-coding 发送一条短消息验证连接。",
       "切换模型：回到工作台选择需要使用的真实模型，下一次调用生效。",
     ],
@@ -78,12 +81,16 @@ const tools = [
       <template #header>
         <div class="card-header">
           <strong>统一配置</strong>
-          <el-button link @click="copy(baseUrl)">复制 Base URL</el-button>
+          <el-button link :disabled="!baseUrl" @click="copy(baseUrl)">复制 Base URL</el-button>
         </div>
       </template>
       <el-descriptions :column="1" border>
         <el-descriptions-item label="Provider"><code>OpenAI Compatible</code></el-descriptions-item>
-        <el-descriptions-item label="Base URL"><code>{{ baseUrl }}</code></el-descriptions-item>
+        <el-descriptions-item label="Base URL（关闭完整 URL）"><code>{{ baseUrl || '加载中' }}</code></el-descriptions-item>
+        <el-descriptions-item label="完整 URL（开启完整 URL）">
+          <code>{{ fullRequestUrl || '加载中' }}</code>
+          <el-button link :disabled="!fullRequestUrl" @click="copy(fullRequestUrl)">复制完整 URL</el-button>
+        </el-descriptions-item>
         <el-descriptions-item label="API Key"><code>工作台生成的个人 Key</code></el-descriptions-item>
         <el-descriptions-item label="Model">
           <code class="selected-model-code">{{ gatewayModel }}</code>
@@ -106,13 +113,13 @@ const tools = [
       <template #header>
         <div class="card-header">
           <strong>Curl 示例</strong>
-          <el-button link @click="copy(curl)">复制 Curl</el-button>
+          <el-button link :disabled="!fullRequestUrl" @click="copy(curl)">复制 Curl</el-button>
         </div>
       </template>
       <pre class="code-block">{{ curl }}</pre>
     </el-card>
     <el-alert class="section-card" type="info" :closable="false">
-      Base URL 已包含 /v1，工具中不要重复填写 /v1/v1。
+      TRAE 开启「完整 URL」后不会拼接路径，仅填 /v1 会返回 404。关闭时使用 Base URL，避免重复填写 /v1/v1。
     </el-alert>
     <el-alert
       class="section-card"

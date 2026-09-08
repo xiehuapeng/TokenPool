@@ -7,6 +7,12 @@ logger = logging.getLogger(__name__)
 _active_cleanup_tasks: set[asyncio.Task[None]] = set()
 
 
+async def drain_cleanup_tasks() -> None:
+    """Finish detached audits before lifespan releases process ownership/DB."""
+    while _active_cleanup_tasks:
+        await asyncio.gather(*tuple(_active_cleanup_tasks), return_exceptions=True)
+
+
 def _cleanup_finished(task: asyncio.Task[None]) -> None:
     _active_cleanup_tasks.discard(task)
     if task.cancelled():

@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     model_sync_initial_delay_seconds: int = 10
     cors_origins: Annotated[list[str], NoDecode] = []
     auto_migrate: bool = True
+    seed_on_startup: bool = True
+    usage_runtime_dir: Path = BACKEND_DIR / "data" / "usage-runtime"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

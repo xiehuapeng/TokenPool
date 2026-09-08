@@ -12,6 +12,8 @@ from app.providers.base import (
     ProviderStream,
     StreamEvent,
 )
+from app.providers.http_cleanup import close_provider_connection
+from app.utils.async_cleanup import run_cancellation_safe_cleanup
 from app.utils.errors import GatewayError
 
 
@@ -90,8 +92,7 @@ class GLMStream(ProviderStream):
             yield StreamEvent(data=data)
 
     async def close(self) -> None:
-        await self.response.aclose()
-        await self.client.aclose()
+        await close_provider_connection(self.client, self.response)
 
 
 class GLMProvider(BaseProvider):
@@ -225,13 +226,20 @@ class GLMProvider(BaseProvider):
             "stream_options": stream_options,
         }
         client = self._client(timeout_seconds)
-        request = client.build_request(
-            "POST", self._url(), headers=self._headers(), json=upstream_payload
-        )
+        response: httpx.Response | None = None
+        transferred = False
         try:
+            request = client.build_request(
+                "POST", self._url(), headers=self._headers(), json=upstream_payload
+            )
             response = await client.send(request, stream=True)
+            if not response.is_success:
+                body = await response.aread()
+                raise _upstream_error(response, body)
+            stream = GLMStream(client, response)
+            transferred = True
+            return stream
         except httpx.TimeoutException as exc:
-            await client.aclose()
             raise GatewayError(
                 "Zhipu GLM streaming request timed out",
                 status_code=504,
@@ -239,17 +247,14 @@ class GLMProvider(BaseProvider):
                 code="upstream_timeout",
             ) from exc
         except httpx.HTTPError as exc:
-            await client.aclose()
             raise GatewayError(
                 "Unable to connect to Zhipu GLM",
                 status_code=502,
                 error_type="upstream_error",
                 code="upstream_connection_error",
             ) from exc
-        if not response.is_success:
-            body = await response.aread()
-            error = _upstream_error(response, body)
-            await response.aclose()
-            await client.aclose()
-            raise error
-        return GLMStream(client, response)
+        finally:
+            if not transferred:
+                await run_cancellation_safe_cleanup(
+                    close_provider_connection(client, response)
+                )

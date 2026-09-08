@@ -10,6 +10,8 @@ from app.providers.base import (
     ProviderStream,
     StreamEvent,
 )
+from app.providers.http_cleanup import close_provider_connection
+from app.utils.async_cleanup import run_cancellation_safe_cleanup
 from app.utils.errors import GatewayError
 
 
@@ -43,8 +45,7 @@ class OpenAICompatibleStream(ProviderStream):
                 continue
 
     async def close(self) -> None:
-        await self.response.aclose()
-        await self.client.aclose()
+        await close_provider_connection(self.client, self.response)
 
 
 class OpenAICompatibleProvider(BaseProvider):
@@ -204,16 +205,23 @@ class OpenAICompatibleProvider(BaseProvider):
             "stream_options": stream_options,
         }
         client = self._client(timeout_seconds)
-        request = client.build_request(
-            "POST",
-            self._url("chat/completions"),
-            headers=self._headers(),
-            json=upstream_payload,
-        )
+        response: httpx.Response | None = None
+        transferred = False
         try:
+            request = client.build_request(
+                "POST",
+                self._url("chat/completions"),
+                headers=self._headers(),
+                json=upstream_payload,
+            )
             response = await client.send(request, stream=True)
+            if not response.is_success:
+                body = await response.aread()
+                raise self._upstream_error(response, body)
+            stream = OpenAICompatibleStream(client, response)
+            transferred = True
+            return stream
         except httpx.TimeoutException as exc:
-            await client.aclose()
             raise GatewayError(
                 f"{self.provider_name} streaming request timed out",
                 status_code=504,
@@ -221,17 +229,14 @@ class OpenAICompatibleProvider(BaseProvider):
                 code="upstream_timeout",
             ) from exc
         except httpx.HTTPError as exc:
-            await client.aclose()
             raise GatewayError(
                 f"Unable to connect to {self.provider_name}",
                 status_code=502,
                 error_type="upstream_error",
                 code="upstream_connection_error",
             ) from exc
-        if not response.is_success:
-            body = await response.aread()
-            error = self._upstream_error(response, body)
-            await response.aclose()
-            await client.aclose()
-            raise error
-        return OpenAICompatibleStream(client, response)
+        finally:
+            if not transferred:
+                await run_cancellation_safe_cleanup(
+                    close_provider_connection(client, response)
+                )

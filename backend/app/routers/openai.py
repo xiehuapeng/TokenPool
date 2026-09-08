@@ -33,6 +33,7 @@ from app.services.usage_service import (
 from app.utils.time import utc_now
 from app.utils.async_cleanup import run_cancellation_safe_cleanup
 from app.utils.errors import GatewayError
+from app.utils.redaction import redact_secrets
 
 
 router = APIRouter(prefix="/v1", tags=["openai"])
@@ -131,15 +132,28 @@ async def chat_completions(
             upstream_model=route.model.upstream_model,
             timeout_seconds=route.provider_config.timeout_seconds,
         )
+    except asyncio.CancelledError:
+        await run_cancellation_safe_cleanup(
+            finish_usage_log(
+                request_id,
+                started,
+                status="client_disconnected",
+                http_status=None,
+                model_config_id=route.model.id,
+            )
+        )
+        raise
     except GatewayError as exc:
-        await finish_usage_log(
-            request_id,
-            started,
-            status="failed",
-            http_status=exc.status_code,
-            error_code=exc.code,
-            error_message=exc.message,
-            model_config_id=route.model.id,
+        await run_cancellation_safe_cleanup(
+            finish_usage_log(
+                request_id,
+                started,
+                status="failed",
+                http_status=exc.status_code,
+                error_code=exc.code,
+                error_message=exc.message,
+                model_config_id=route.model.id,
+            )
         )
         exc.headers["X-Request-ID"] = request_id
         raise
@@ -150,6 +164,7 @@ async def chat_completions(
         first_token: datetime | None = None
         completed = False
         failure: Exception | None = None
+        failure_code: str | None = None
         first_event_ms: int | None = None
         first_choices_ms: int | None = None
         first_content_ms: int | None = None
@@ -183,6 +198,21 @@ async def chat_completions(
                 if event.data is None:
                     continue
                 data_event_count += 1
+                if event.data.get("error") is not None:
+                    upstream_error = event.data["error"]
+                    message = (
+                        upstream_error.get("message")
+                        if isinstance(upstream_error, dict)
+                        else None
+                    )
+                    raise GatewayError(
+                        redact_secrets(message)[:500]
+                        if message
+                        else "Upstream reported a stream error",
+                        status_code=502,
+                        error_type="upstream_error",
+                        code="upstream_stream_error",
+                    )
                 choices = event.data.get("choices")
                 if choices:
                     if first_token is None:
@@ -194,11 +224,14 @@ async def chat_completions(
                         delta = choice.get("delta")
                         if not isinstance(delta, dict):
                             continue
-                        if delta.get("content") is not None:
+                        if isinstance(delta.get("content"), str) and delta["content"]:
                             content_chunk_count += 1
                             if first_content_ms is None:
                                 first_content_ms = elapsed_ms
-                        if delta.get("reasoning_content") is not None:
+                        if (
+                            isinstance(delta.get("reasoning_content"), str)
+                            and delta["reasoning_content"]
+                        ):
                             reasoning_chunk_count += 1
                             if first_reasoning_ms is None:
                                 first_reasoning_ms = elapsed_ms
@@ -208,15 +241,31 @@ async def chat_completions(
                 yield f"data: {json.dumps(event.data, ensure_ascii=False)}\n\n".encode(
                     "utf-8"
                 )
+            if not completed:
+                raise GatewayError(
+                    "Upstream stream ended before completion",
+                    status_code=502,
+                    error_type="upstream_error",
+                    code="upstream_incomplete_stream",
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             failure = exc
+            failure_code = (
+                redact_secrets(exc.code)[:100]
+                if isinstance(exc, GatewayError)
+                else "stream_interrupted"
+            )
             error = {
                 "error": {
-                    "message": "Upstream stream interrupted",
+                    "message": (
+                        exc.message[:500]
+                        if isinstance(exc, GatewayError)
+                        else "Upstream stream interrupted"
+                    ),
                     "type": "upstream_error",
-                    "code": "stream_interrupted",
+                    "code": failure_code,
                 }
             }
             yield f"data: {json.dumps(error)}\n\n".encode()
@@ -224,10 +273,10 @@ async def chat_completions(
         finally:
             async def cleanup_stream() -> None:
                 status = (
-                    "success"
-                    if completed
-                    else "failed"
+                    "failed"
                     if failure
+                    else "success"
+                    if completed
                     else "client_disconnected"
                 )
                 try:
@@ -241,7 +290,7 @@ async def chat_completions(
                             http_status=upstream.http_status,
                             usage=usage,
                             first_token_time=first_token,
-                            error_code="stream_interrupted" if failure else None,
+                            error_code=failure_code,
                             error_message=str(failure) if failure else None,
                             upstream_request_id=upstream.upstream_request_id,
                             model_config_id=route.model.id,

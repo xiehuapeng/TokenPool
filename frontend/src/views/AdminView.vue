@@ -12,6 +12,7 @@ import { errorMessage } from "@/api/http";
 import { formatBeijingTime } from "@/utils/time";
 import { copyText } from "@/utils/clipboard";
 import { categorizeProviderModels } from "@/utils/modelCategories";
+import { createLatestRequest } from "@/utils/latestRequest";
 
 const activeTab = ref("users");
 const users = ref<any[]>([]);
@@ -48,6 +49,19 @@ const logFilters = reactive({
 });
 const usageDetailVisible = ref(false);
 const usageDetailLoading = ref(false);
+const reportQueryError = (error: unknown) => ElMessage.error(errorMessage(error));
+const statsQuery = createLatestRequest(
+  (loading) => { statsLoading.value = loading; },
+  reportQueryError,
+);
+const logsQuery = createLatestRequest(
+  (loading) => { logsLoading.value = loading; },
+  reportQueryError,
+);
+const usageDetailQuery = createLatestRequest(
+  (loading) => { usageDetailLoading.value = loading; },
+  reportQueryError,
+);
 const usageDetailUser = ref<any>(null);
 const usageDetailPeriod = ref("today");
 const usageDetail = ref<any>({
@@ -202,14 +216,14 @@ function initializeModelCategories() {
 
 async function loadAll() {
   try {
-    const [u, i, k, m, p, s, l] = await Promise.all([
+    const [u, i, k, m, p] = await Promise.all([
       adminApi.users(),
       adminApi.inviteCodes(),
       adminApi.keys(),
       adminApi.models(),
       adminApi.providers(),
-      adminApi.stats(buildUsageParams(statsFilters)),
-      adminApi.logs(buildLogParams()),
+      loadStats(),
+      loadLogs(),
     ]);
     users.value = u.data;
     inviteCodes.value = i.data;
@@ -225,9 +239,6 @@ async function loadAll() {
       activeModelProvider.value = models.value[0]?.provider || "";
     }
     initializeModelCategories();
-    stats.value = s.data;
-    logs.value = l.data.items;
-    totalLogs.value = l.data.total;
   } catch (error) {
     ElMessage.error(errorMessage(error));
   }
@@ -465,28 +476,22 @@ function buildLogParams(): AdminLogFilters {
 }
 
 async function loadStats() {
-  statsLoading.value = true;
-  try {
-    const response = await adminApi.stats(buildUsageParams(statsFilters));
-    stats.value = response.data;
-  } catch (error) {
-    ElMessage.error(errorMessage(error));
-  } finally {
-    statsLoading.value = false;
-  }
+  const params = buildUsageParams(statsFilters);
+  await statsQuery.run(
+    () => adminApi.stats(params),
+    (response) => { stats.value = response.data; },
+  );
 }
 
 async function loadLogs() {
-  logsLoading.value = true;
-  try {
-    const response = await adminApi.logs(buildLogParams());
-    logs.value = response.data.items;
-    totalLogs.value = response.data.total;
-  } catch (error) {
-    ElMessage.error(errorMessage(error));
-  } finally {
-    logsLoading.value = false;
-  }
+  const params = buildLogParams();
+  await logsQuery.run(
+    () => adminApi.logs(params),
+    (response) => {
+      logs.value = response.data.items;
+      totalLogs.value = response.data.total;
+    },
+  );
 }
 
 async function applyStatsFilters() {
@@ -593,19 +598,14 @@ async function showUserLogs(username: string) {
 
 async function loadUsageDetail() {
   if (!usageDetailUser.value) return;
-  usageDetailLoading.value = true;
-  try {
-    const params =
-      usageDetailPeriod.value === "today"
-        ? { today: true }
-        : { days: Number(usageDetailPeriod.value) };
-    const response = await adminApi.userUsage(usageDetailUser.value.id, params);
-    usageDetail.value = response.data;
-  } catch (error) {
-    ElMessage.error(errorMessage(error));
-  } finally {
-    usageDetailLoading.value = false;
-  }
+  const userId = usageDetailUser.value.id;
+  const params = usageDetailPeriod.value === "today"
+    ? { today: true }
+    : { days: Number(usageDetailPeriod.value) };
+  await usageDetailQuery.run(
+    () => adminApi.userUsage(userId, params),
+    (response) => { usageDetail.value = response.data; },
+  );
 }
 
 function openUserUsage(row: any) {
@@ -625,6 +625,7 @@ function openUserUsage(row: any) {
 }
 
 function resetUsageDetail() {
+  usageDetailQuery.invalidate();
   usageDetail.value = { summary: {}, by_model: [], by_day: [] };
   usageDetailUser.value = null;
 }
@@ -824,6 +825,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  statsQuery.invalidate();
+  logsQuery.invalidate();
+  usageDetailQuery.invalidate();
 });
 
 </script>

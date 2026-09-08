@@ -19,6 +19,7 @@ class UsageLog(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     request_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    runtime_id: Mapped[str | None] = mapped_column(String(64))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     api_key_id: Mapped[int] = mapped_column(ForeignKey("api_keys.id"), index=True)
     requested_model: Mapped[str | None] = mapped_column(String(120))

@@ -202,3 +202,62 @@ async def test_reconcile_does_not_overwrite_realtime_cost(client):
         )
     assert log.cost_source == "realtime"
     assert log.cost == Decimal("0.000100")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize(
+    ("protected_status", "protected_source", "protected_cached"),
+    [("success", "realtime", None), ("success", None, 0), ("failed", "realtime", None)],
+)
+async def test_reconcile_rejects_mixed_sources_before_changing_any_day(
+    client, dry_run, protected_status, protected_source, protected_cached,
+):
+    async with SessionLocal() as session:
+        await session.execute(delete(UsageLog))
+        await session.commit()
+    user_id, api_key_id = await _identity(client)
+    async with SessionLocal() as session:
+        for request_id, day, cost, source, cached, status in (
+            ("mixed-other-day", 22, "0.2", "estimated", None, "success"),
+            ("mixed-historical", 23, "0.3", "estimated", None, "success"),
+            ("mixed-protected", 23, "0.5", protected_source, protected_cached, protected_status),
+        ):
+            session.add(
+                UsageLog(
+                    request_id=request_id, user_id=user_id, api_key_id=api_key_id,
+                    requested_model="team-coding", model="qwen3.8-max",
+                    provider="qwen", upstream_model="qwen3.8-max", stream=False,
+                    request_time=datetime(2026, 8, day, 1, tzinfo=timezone.utc),
+                    status=status, input_tokens=100, output_tokens=10,
+                    cached_input_tokens=cached, cost=Decimal(cost), cost_source=source,
+                )
+            )
+        await session.commit()
+        before = (
+            await session.execute(
+                select(UsageLog.request_id, UsageLog.cost, UsageLog.cost_source,
+                       UsageLog.cached_input_tokens, UsageLog.price_detail)
+                .order_by(UsageLog.request_id)
+            )
+        ).all()
+
+    bills = [
+        AliyunDailyBill(
+            billing_date=datetime(2026, 8, day).date(), model="qwen3.8-max",
+            uncached_input_tokens=200, uncached_input_cost=Decimal("1"),
+        )
+        for day in (22, 23)
+    ]
+    with pytest.raises(ValueError, match="2026-08-23/qwen3.8-max: mixed"):
+        await reconcile_aliyun_daily_bill(bills, dry_run=dry_run)
+
+    async with SessionLocal() as session:
+        after = (
+            await session.execute(
+                select(UsageLog.request_id, UsageLog.cost, UsageLog.cost_source,
+                       UsageLog.cached_input_tokens, UsageLog.price_detail)
+                .order_by(UsageLog.request_id)
+            )
+        ).all()
+    assert after == before

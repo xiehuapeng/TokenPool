@@ -8,8 +8,10 @@ import { errorMessage } from "@/api/http";
 import { copyText } from "@/utils/clipboard";
 import { preloadAuthenticatedViewsWhenIdle } from "@/router/viewLoaders";
 import { formatBeijingTime } from "@/utils/time";
+import { chatCompletionsUrl } from "@/utils/requestUrls";
 
 const baseUrl = ref("");
+const fullRequestUrl = computed(() => chatCompletionsUrl(baseUrl.value));
 const maxApiKeys = ref(3);
 const keys = ref<ApiKeyItem[]>([]);
 const loading = ref(true);
@@ -39,7 +41,7 @@ const modelGroups = computed(() => {
     models: providerModels,
   }));
 });
-const curlExample = computed(() => `curl ${baseUrl.value}/chat/completions \\
+const curlExample = computed(() => `curl ${fullRequestUrl.value} \\
   -H "Authorization: Bearer ${generatedKey.value || "sk-team-your-key"}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -196,9 +198,15 @@ onMounted(load);
           <h3>API Base URL</h3>
           <div class="copy-value">
             <code>{{ baseUrl }}</code>
-            <el-button link @click="copy(baseUrl)">复制</el-button>
+            <el-button link :disabled="!baseUrl" @click="copy(baseUrl)">复制</el-button>
           </div>
-          <p>在 Trae、WorkBuddy 等工具中使用此地址。</p>
+          <p>TRAE 关闭「完整 URL」时使用上方地址。</p>
+          <h3>完整请求 URL</h3>
+          <div class="copy-value">
+            <code>{{ fullRequestUrl }}</code>
+            <el-button link :disabled="!fullRequestUrl" @click="copy(fullRequestUrl)">复制</el-button>
+          </div>
+          <p>TRAE 开启「完整 URL」时使用此地址，需包含 /chat/completions。</p>
         </el-card>
       </el-col>
       <el-col :span="14">

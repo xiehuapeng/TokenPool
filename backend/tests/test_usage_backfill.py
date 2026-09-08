@@ -206,6 +206,42 @@ async def test_backfill_falls_back_to_global_average_hit_rate(client):
 
 
 @pytest.mark.asyncio
+async def test_backfill_keeps_zero_cache_observations_in_model_and_global_rates(client):
+    await _clear_usage_logs()
+    user_id, api_key_id = await _prepare_identity(client, "bf-zero-cache")
+    await _insert_log(
+        user_id, api_key_id, "bf-zero-observed",
+        input_tokens=1000, cached_input_tokens=0, output_tokens=0,
+    )
+    await _insert_log(
+        user_id, api_key_id, "bf-half-observed",
+        model="qwen3.7-plus", provider="qwen",
+        input_tokens=1000, cached_input_tokens=500, output_tokens=0,
+    )
+    await _insert_log(
+        user_id, api_key_id, "bf-zero-missing", input_tokens=1000, output_tokens=0,
+    )
+    await _insert_log(
+        user_id, api_key_id, "bf-zero-global-fallback",
+        model="deepseek-v4-flash", provider="deepseek",
+        input_tokens=1000, output_tokens=0,
+    )
+
+    result = await backfill_usage_costs()
+
+    assert result["model_cache_hit_rates"]["glm-5.3"] == 0.0
+    assert result["model_cache_hit_rates"]["qwen3.7-plus"] == 0.5
+    assert result["global_cache_hit_rate"] == 0.25
+    zero_missing = await _get_log("bf-zero-missing")
+    assert zero_missing.price_detail["cache_rate_basis"] == "model_avg"
+    assert zero_missing.price_detail["estimated_cached_tokens"] == 0
+    assert float(zero_missing.cost) == pytest.approx(0.008)
+    fallback = await _get_log("bf-zero-global-fallback")
+    assert fallback.price_detail["cache_rate_basis"] == "global_avg"
+    assert fallback.price_detail["estimated_cached_tokens"] == 250
+
+
+@pytest.mark.asyncio
 async def test_backfill_dry_run_does_not_persist(client):
     await _clear_usage_logs()
     user_id, api_key_id = await _prepare_identity(client, "bf-user-b")

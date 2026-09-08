@@ -1,11 +1,15 @@
+import asyncio
+from datetime import timedelta
+
 import pytest
 from sqlalchemy import select
 
 from app.database.session import SessionLocal
-from app.models import ModelConfig
+from app.models import ApiKey, ModelConfig
 from app.providers.base import BaseProvider, ProviderResult
 from app.providers.registry import provider_registry
 from app.services.model_router import payload_contains_images
+from app.utils.time import utc_now
 
 
 class RecordingProvider(BaseProvider):
@@ -106,6 +110,58 @@ async def test_api_key_limit(client):
     listed = await client.get("/api/me/api-keys", headers=user_headers)
     assert listed.status_code == 200
     assert len(listed.json()) == 3
+
+
+@pytest.mark.asyncio
+async def test_api_key_limit_is_atomic_for_concurrent_creates(client):
+    admin_token = await login(client, "admin", "admin-password")
+    user_token = await create_user(
+        client, {"Authorization": f"Bearer {admin_token}"}, "key-race-user"
+    )
+    headers = {"Authorization": f"Bearer {user_token}"}
+    await create_key(client, headers, "existing-one")
+    await create_key(client, headers, "existing-two")
+
+    responses = await asyncio.gather(
+        *(
+            client.post(
+                "/api/me/api-keys", headers=headers, json={"name": f"race-{index}"}
+            )
+            for index in range(6)
+        )
+    )
+    assert sorted(response.status_code for response in responses) == [201] + [400] * 5
+    assert all(
+        response.json()["error"]["code"] == "api_key_limit_reached"
+        for response in responses
+        if response.status_code == 400
+    )
+    listed = await client.get("/api/me/api-keys", headers=headers)
+    assert len(listed.json()) == 3
+
+
+@pytest.mark.asyncio
+async def test_expired_key_does_not_consume_creation_limit_before_list_refresh(client):
+    admin_token = await login(client, "admin", "admin-password")
+    user_token = await create_user(
+        client, {"Authorization": f"Bearer {admin_token}"}, "key-expiry-user"
+    )
+    headers = {"Authorization": f"Bearer {user_token}"}
+    keys = [await create_key(client, headers, f"expiry-{index}") for index in range(3)]
+    async with SessionLocal() as session:
+        expired = await session.get(ApiKey, keys[0]["id"])
+        expired.expires_at = utc_now() - timedelta(seconds=1)
+        await session.commit()
+
+    # Creating directly must work even when GET /api-keys has not yet retired
+    # the expired key's still-active database record.
+    replacement = await create_key(client, headers, "replacement")
+    assert replacement["id"] not in {key["id"] for key in keys}
+    blocked = await client.post(
+        "/api/me/api-keys", headers=headers, json={"name": "fourth-valid"}
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["error"]["code"] == "api_key_limit_reached"
 
 
 @pytest.mark.asyncio

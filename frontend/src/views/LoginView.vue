@@ -6,6 +6,7 @@ import "element-plus/es/components/message/style/css";
 import { authApi } from "@/api";
 import { errorMessage } from "@/api/http";
 import { preloadDashboardWhenIdle } from "@/router/viewLoaders";
+import { validateCredentials } from "@/utils/authValidation";
 
 const router = useRouter();
 const loading = ref(false);
@@ -23,21 +24,11 @@ const apiConfigured =
 onMounted(preloadDashboardWhenIdle);
 
 async function submit() {
-  if (!apiConfigured) return;
+  if (!apiConfigured || loading.value) return;
   const username = form.username.trim();
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,62}[a-zA-Z0-9]$/.test(username)) {
-    ElMessage.warning(
-      "用户名需为 3–64 位，以字母或数字开头和结尾，中间可使用 . _ -",
-    );
-    return;
-  }
-  if (
-    form.password.length < 8 ||
-    form.password.length > 64 ||
-    !/[A-Za-z]/.test(form.password) ||
-    !/\d/.test(form.password)
-  ) {
-    ElMessage.warning("密码需为 8–64 位，并且至少包含一个字母和一个数字");
+  const validationError = validateCredentials(mode.value, username, form.password);
+  if (validationError) {
+    ElMessage.warning(validationError);
     return;
   }
   if (mode.value === "register" && form.password !== form.confirmPassword) {
@@ -107,7 +98,7 @@ async function submit() {
             v-model="form.username"
             size="large"
             autofocus
-            placeholder="3–64 位，字母/数字开头和结尾"
+            :placeholder="mode === 'login' ? '请输入用户名' : '3–64 位，字母/数字开头和结尾'"
           />
           <div v-if="mode === 'register'" class="form-tip">
             支持字母、数字、点、下划线和短横线；用户名不区分大小写且不能重名
@@ -119,7 +110,7 @@ async function submit() {
             type="password"
             size="large"
             show-password
-            placeholder="8–64 位，至少包含字母和数字"
+            :placeholder="mode === 'login' ? '请输入密码' : '8–64 位，至少包含字母和数字'"
             @keyup.enter="mode === 'login' && submit()"
           />
           <div v-if="mode === 'register'" class="form-tip">

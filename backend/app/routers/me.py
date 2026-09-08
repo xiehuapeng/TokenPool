@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
 
 from app.config.settings import get_settings
 from app.dependencies import DbSession, current_user
@@ -121,9 +121,25 @@ async def create_api_key(
     session: DbSession,
 ) -> ApiKeyCreated:
     max_keys = get_settings().max_api_keys_per_user
+    # Serialize creation for the same owner until the insert commits. PostgreSQL
+    # needs a row lock even when the owner has no keys yet. SQLite ignores FOR
+    # UPDATE, so a no-op write obtains its transaction-level write lock instead.
+    if session.get_bind().dialect.name == "sqlite":
+        await session.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(updated_at=User.updated_at)
+        )
+    else:
+        await session.execute(
+            select(User.id).where(User.id == user.id).with_for_update()
+        )
+    now = utc_now()
     active_count = await session.scalar(
         select(func.count(ApiKey.id)).where(
-            ApiKey.user_id == user.id, ApiKey.status == "active"
+            ApiKey.user_id == user.id,
+            ApiKey.status == "active",
+            or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
         )
     )
     if (active_count or 0) >= max_keys:
