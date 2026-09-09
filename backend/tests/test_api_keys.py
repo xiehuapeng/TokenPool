@@ -313,16 +313,21 @@ async def test_vision_reroute_and_friendly_error(client):
         )
         assert rerouted.status_code == 200, rerouted.text
         assert rerouted.json()["model"] == "deepseek-v4-flash"
-        assert glm_fake.upstream_models[-1] == "glm-5.3-flash"
+        # 图片请求回退到新上架的DeepSeek视觉实验模型（同Provider优先）。
+        assert (
+            deepseek_fake.upstream_models[-1] == "deepseek-v4-flash-vision-exp"
+        )
+        assert glm_fake.upstream_models == []
         assert qwen_fake.upstream_models == []
-        assert deepseek_fake.upstream_models == []
 
         virtual_image = {**image_payload, "model": "team-coding"}
         virtual_rerouted = await client.post(
             "/v1/chat/completions", headers=api_headers, json=virtual_image
         )
         assert virtual_rerouted.status_code == 200, virtual_rerouted.text
-        assert glm_fake.upstream_models[-1] == "glm-5.3-flash"
+        assert (
+            deepseek_fake.upstream_models[-1] == "deepseek-v4-flash-vision-exp"
+        )
 
         text_only = await client.post(
             "/v1/chat/completions",
@@ -341,6 +346,7 @@ async def test_vision_reroute_and_friendly_error(client):
                     select(ModelConfig).where(
                         ModelConfig.public_model.in_(
                             (
+                                "deepseek-v4-flash-vision-exp",
                                 "glm-5.3-flash",
                                 "qwen3.8-max",
                                 "qwen3.8-flash",
@@ -369,6 +375,7 @@ async def test_vision_reroute_and_friendly_error(client):
                         select(ModelConfig).where(
                             ModelConfig.public_model.in_(
                                 (
+                                    "deepseek-v4-flash-vision-exp",
                                     "glm-5.3-flash",
                                     "qwen3.8-max",
                                     "qwen3.8-flash",

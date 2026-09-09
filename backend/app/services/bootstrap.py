@@ -10,6 +10,7 @@ from app.utils.time import utc_now
 
 
 VISION_CAPABLE_MODELS = {
+    "deepseek-v4-flash-vision-exp",
     "glm-5.3-flash",
     "qwen3.8-max",
     "qwen3.8-flash",
@@ -28,6 +29,17 @@ SEED_PRICINGS: dict[str, dict] = {
         "peak_cached_input_price": Decimal("0.1"),
         "peak_output_price": Decimal("9"),
         "note": "DeepSeek官网价，非高峰档；工作日9-12/14-18（北京时间）高峰翻倍",
+    },
+    "deepseek-v4-flash-vision-exp": {
+        "input_price": Decimal("1.5"),
+        "cached_input_price": Decimal("0.05"),
+        "output_price": Decimal("4.5"),
+        "peak_input_price": Decimal("3"),
+        "peak_cached_input_price": Decimal("0.1"),
+        "peak_output_price": Decimal("9"),
+        "note": "DeepSeek官网价（实验性视觉模型，价格与flash相同），非高峰档；"
+        "工作日9-12/14-18（北京时间）高峰翻倍；"
+        "图片按尺寸折算为输入tokens与文本合并计费",
     },
     "deepseek-v4-pro": {
         "input_price": Decimal("4.5"),
@@ -178,6 +190,10 @@ async def seed_initial_data() -> None:
             (
                 ("deepseek-v4-flash", "DeepSeek V4 Flash"),
                 ("deepseek-v4-pro", "DeepSeek V4 Pro"),
+                (
+                    "deepseek-v4-flash-vision-exp",
+                    "DeepSeek V4 Flash Vision Exp",
+                ),
             )
         ):
             capabilities = {
@@ -204,6 +220,26 @@ async def seed_initial_data() -> None:
                         sort_order=index,
                     )
                 )
+            else:
+                # 官方同步任务可能已提前发现该模型（默认关闭、无视觉标记）。
+                # 上架种子补齐展示与能力配置，并标记为种子管理；仅当模型
+                # 尚未被种子管理过且处于同步入库的初始关闭状态时才随
+                # Provider开启，之后保留管理员在模型管理页的启停选择。
+                original_capabilities = dict(model.capabilities or {})
+                model.display_name = display_name
+                model.capabilities = {
+                    **original_capabilities,
+                    **capabilities,
+                    "seed_managed": True,
+                }
+                if (
+                    "seed_managed" not in original_capabilities
+                    and "official_synced_at" in original_capabilities
+                    and not model.enabled
+                    and not model.default_allowed
+                ):
+                    model.enabled = deepseek.enabled
+                    model.default_allowed = deepseek.enabled
         await session.flush()
 
         # DeepSeek于2026-07-24停止旧模型名。清理历史配置，避免旧数据库
