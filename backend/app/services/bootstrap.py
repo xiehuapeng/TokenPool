@@ -57,13 +57,10 @@ SEED_PRICINGS: dict[str, dict] = {
         "note": "智谱官网价，不分档",
     },
     "glm-5.3-flash": {
-        "input_price": Decimal("0.4"),
-        "cached_input_price": Decimal("0.115"),
-        "output_price": Decimal("1.4"),
-        "note": (
-            "智谱官网限时半价（GLM-5.3的1/20），折扣至2026-09-09，"
-            "9月10日起恢复原价输入0.8/输出2.8，需同步调整"
-        ),
+        "input_price": Decimal("0.8"),
+        "cached_input_price": Decimal("0.23"),
+        "output_price": Decimal("2.8"),
+        "note": "智谱官网价，不分档",
     },
     "glm-5": {
         "input_price": Decimal("4"),
