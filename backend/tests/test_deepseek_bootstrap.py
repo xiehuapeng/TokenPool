@@ -98,9 +98,9 @@ async def test_bootstrap_seeds_vision_exp_model(client):
     assert model.sort_order == 2
     assert (model.capabilities or {}).get("vision") is True
     assert pricing is not None
-    assert pricing.input_price == Decimal("1.5")
-    assert pricing.peak_input_price == Decimal("3")
-    assert pricing.peak_output_price == Decimal("9")
+    assert pricing.input_price == Decimal("1")
+    assert pricing.peak_input_price == Decimal("2")
+    assert pricing.peak_output_price == Decimal("8")
 
 
 @pytest.mark.asyncio

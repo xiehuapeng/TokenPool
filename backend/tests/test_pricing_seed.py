@@ -56,12 +56,12 @@ async def test_seed_pricing_values_match_official_prices(client):
             )
         )
 
-    assert flash_pricing.input_price == Decimal("1.5")
-    assert flash_pricing.cached_input_price == Decimal("0.05")
-    assert flash_pricing.output_price == Decimal("4.5")
-    assert flash_pricing.peak_input_price == Decimal("3")
-    assert flash_pricing.peak_cached_input_price == Decimal("0.1")
-    assert flash_pricing.peak_output_price == Decimal("9")
+    assert flash_pricing.input_price == Decimal("1")
+    assert flash_pricing.cached_input_price == Decimal("0.02")
+    assert flash_pricing.output_price == Decimal("4")
+    assert flash_pricing.peak_input_price == Decimal("2")
+    assert flash_pricing.peak_cached_input_price == Decimal("0.04")
+    assert flash_pricing.peak_output_price == Decimal("8")
     assert flash_pricing.currency == "CNY"
     assert flash_pricing.enabled is True
     assert flash_pricing.effective_at is not None

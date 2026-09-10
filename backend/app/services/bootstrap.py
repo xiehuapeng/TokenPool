@@ -22,23 +22,23 @@ VISION_CAPABLE_MODELS = {
 
 SEED_PRICINGS: dict[str, dict] = {
     "deepseek-v4-flash": {
-        "input_price": Decimal("1.5"),
-        "cached_input_price": Decimal("0.05"),
-        "output_price": Decimal("4.5"),
-        "peak_input_price": Decimal("3"),
-        "peak_cached_input_price": Decimal("0.1"),
-        "peak_output_price": Decimal("9"),
-        "note": "DeepSeek官网价，非高峰档；工作日9-12/14-18（北京时间）高峰翻倍",
+        "input_price": Decimal("1"),
+        "cached_input_price": Decimal("0.02"),
+        "output_price": Decimal("4"),
+        "peak_input_price": Decimal("2"),
+        "peak_cached_input_price": Decimal("0.04"),
+        "peak_output_price": Decimal("8"),
+        "note": "DeepSeek官网价（2026-09-10起），非高峰档；工作日9-12/14-18（北京时间）高峰翻倍",
     },
     "deepseek-v4-flash-vision-exp": {
-        "input_price": Decimal("1.5"),
-        "cached_input_price": Decimal("0.05"),
-        "output_price": Decimal("4.5"),
-        "peak_input_price": Decimal("3"),
-        "peak_cached_input_price": Decimal("0.1"),
-        "peak_output_price": Decimal("9"),
-        "note": "DeepSeek官网价（实验性视觉模型，价格与flash相同），非高峰档；"
-        "工作日9-12/14-18（北京时间）高峰翻倍；"
+        "input_price": Decimal("1"),
+        "cached_input_price": Decimal("0.02"),
+        "output_price": Decimal("4"),
+        "peak_input_price": Decimal("2"),
+        "peak_cached_input_price": Decimal("0.04"),
+        "peak_output_price": Decimal("8"),
+        "note": "DeepSeek官网价（实验性视觉模型，价格与flash相同，2026-09-10起），"
+        "非高峰档；工作日9-12/14-18（北京时间）高峰翻倍；"
         "图片按尺寸折算为输入tokens与文本合并计费",
     },
     "deepseek-v4-pro": {

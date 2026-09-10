@@ -204,7 +204,7 @@ async def test_pricing_nullable_clear_and_rejection(client):
     admin_token = await _admin_token(client)
     models = await _get_models(client, admin_token)
     flash_id = models["deepseek-v4-flash"]["id"]
-    assert models["deepseek-v4-flash"]["pricing"]["peak_input_price"] == 3.0
+    assert models["deepseek-v4-flash"]["pricing"]["peak_input_price"] == 2.0
 
     try:
         cleared = await client.patch(
@@ -226,7 +226,7 @@ async def test_pricing_nullable_clear_and_rejection(client):
         await client.patch(
             f"/api/admin/models/{flash_id}/pricing",
             headers={"Authorization": f"Bearer {admin_token}"},
-            json={"peak_input_price": 3},
+            json={"peak_input_price": 2},
         )
 
 

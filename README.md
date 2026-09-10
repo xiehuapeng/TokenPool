@@ -383,6 +383,23 @@ systemctl reload nginx
   导致 shell source 报错的问题（systemd 读取语义不变，已备份原文件）。
 - 后端测试基线 121 passed / 1 skipped。
 
+### 2026-09-10（DeepSeek flash 系列调价）
+
+- 按 DeepSeek 官方公告（北京时间 2026-09-10 12:00 起生效）更新 flash 系列
+  计价：空闲档输入缓存命中 0.02、输入缓存未命中 1、输出 4；高峰档翻倍
+  （0.04/2/8）。`deepseek-v4-flash` 与 `deepseek-v4-flash-vision-exp`
+  两条生产计价行与 bootstrap 种子同步更新，`test_pricing_seed`、
+  `test_deepseek_bootstrap`、`test_admin_pricing` 断言同步调整。
+- 历史账目与原始 Token 数据不受影响。
+
+## 待生效变更（DeepSeek 公告）
+
+- V4 Pro 下线（北京时间 2026-09-14 12:00）：上游将把 `deepseek-v4-pro` 路由
+  到 V4.1 Flash 并按其计费。计划待 V4.1 Flash 官方价格公布后一次性完成：
+  上架 `deepseek-v4.1-flash`（含计价）→ 按既有退役流程下线
+  `deepseek-v4-pro` 并自动迁移用户偏好 → 测试、部署生产、记录。
+  已创建 09-14 09:00 定时提醒（仅提醒，不自动执行）。
+
 ## 后续演进
 
 数据库结构已经预留用户模型权限、多上游账号、额度和限流。下一阶段优先级：
