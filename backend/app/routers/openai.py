@@ -65,7 +65,19 @@ async def chat_completions(
     )
     request_id = f"req_{uuid.uuid4().hex}"
     payload = body.model_dump(exclude_none=True)
+    original_model = route.model.public_model
+    route_reason = "preference" if body.model == GATEWAY_MODEL_ID else "explicit"
     if payload_contains_images(payload) and not model_supports_vision(route.model):
+        if body.model != GATEWAY_MODEL_ID:
+            raise GatewayError(
+                "当前请求或历史消息包含图片，但指定模型不支持视觉理解。"
+                "请显式选择支持视觉的模型，或使用 team-coding 允许自动切换；"
+                "如需继续使用当前模型，请移除图片上下文或新建纯文本会话。",
+                status_code=400,
+                code="vision_not_supported",
+                param="model",
+                headers={"X-Request-ID": request_id},
+            )
         fallback = await find_vision_fallback(
             session,
             user_id=principal.user.id,
@@ -78,8 +90,10 @@ async def chat_completions(
                 status_code=400,
                 code="vision_not_supported",
                 param="model",
+                headers={"X-Request-ID": request_id},
             )
         route = fallback
+        route_reason = "vision_fallback"
     if model_requires_reasoning_content(route.model):
         payload = ensure_reasoning_content(payload)
     started = await create_usage_log(
@@ -91,7 +105,15 @@ async def chat_completions(
         provider=route.provider_config.code,
         upstream_model=route.model.upstream_model,
         stream=body.stream,
+        original_model=original_model,
+        route_reason=route_reason,
     )
+    route_headers = {
+        "X-Request-ID": request_id,
+        "X-Original-Model": original_model,
+        "X-Actual-Model": route.model.public_model,
+        "X-Route-Reason": route_reason,
+    }
 
     if not body.stream:
         try:
@@ -110,7 +132,7 @@ async def chat_completions(
                 upstream_request_id=result.upstream_request_id,
                 model_config_id=route.model.id,
             )
-            response.headers["X-Request-ID"] = request_id
+            response.headers.update(route_headers)
             return result.data
         except GatewayError as exc:
             await finish_usage_log(
@@ -335,6 +357,6 @@ async def chat_completions(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-            "X-Request-ID": request_id,
+            **route_headers,
         },
     )

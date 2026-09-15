@@ -127,5 +127,10 @@ const tools = [
       :closable="false"
       title="Trae、WorkBuddy 只需配置一次 team-coding；以后在工作台切换真实模型即可。"
     />
+    <el-alert class="section-card" type="info" :closable="false">
+      team-coding 可在图片请求中自动选择有权限的视觉模型。显式填写真实模型 ID 时，
+      若该模型不支持图片，将返回 400 提示；历史消息中的图片也会触发检查。
+      此时请选择视觉模型，或新建纯文本会话。管理后台调用日志可查看实际模型及切换原因。
+    </el-alert>
   </div>
 </template>

@@ -23,6 +23,8 @@ class UsageLog(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     api_key_id: Mapped[int] = mapped_column(ForeignKey("api_keys.id"), index=True)
     requested_model: Mapped[str | None] = mapped_column(String(120))
+    original_model: Mapped[str | None] = mapped_column(String(120))
+    route_reason: Mapped[str | None] = mapped_column(String(40))
     model: Mapped[str] = mapped_column(String(120))
     provider: Mapped[str] = mapped_column(String(40))
     upstream_model: Mapped[str] = mapped_column(String(160))

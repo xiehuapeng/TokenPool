@@ -28,6 +28,8 @@ async def create_usage_log(
     provider: str,
     upstream_model: str,
     stream: bool,
+    original_model: str | None = None,
+    route_reason: str | None = None,
 ) -> datetime:
     started = utc_now()
     async with SessionLocal() as session:
@@ -38,6 +40,8 @@ async def create_usage_log(
                 user_id=user_id,
                 api_key_id=api_key_id,
                 requested_model=requested_model,
+                original_model=original_model,
+                route_reason=route_reason,
                 model=model,
                 provider=provider,
                 upstream_model=upstream_model,

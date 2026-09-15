@@ -919,6 +919,8 @@ async def usage_logs(
                 "username": user.username,
                 "request_time": beijing_iso(log.request_time),
                 "requested_model": log.requested_model or log.model,
+                "original_model": log.original_model,
+                "route_reason": log.route_reason,
                 "model": log.model,
                 "provider": log.provider,
                 "stream": log.stream,

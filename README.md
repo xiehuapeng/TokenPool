@@ -17,7 +17,10 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
 - 固定虚拟模型 `team-coding`，用户可在工作台选择实际调用模型；每个 API Key
   也可单独绑定首选模型，调用时 Key 级偏好优先于用户级偏好。每人最多 3 把
   Key（可配置）
-- 含图片的请求命中不支持视觉的模型时，自动切换到用户有权限的视觉模型；当前
+- 仅 `team-coding` 含图片请求命中非视觉模型时自动切换；显式指定非视觉模型时
+  返回 HTTP 400 `vision_not_supported`，包括历史消息仍带图片的情况。
+  调用审计记录原模型、实际模型和选择原因，响应头提供 `X-Original-Model`、
+  `X-Actual-Model`、`X-Route-Reason`（`explicit` / `preference` / `vision_fallback`）。当前
   7 个模型带视觉标记（`glm-5.3-flash`、`qwen3.8-max`、`qwen3.8-flash`、
   `qwen3.7-plus`、`kimi-k3`、`kimi-k2.7-code`、`kimi-k2.7-code-highspeed`）
 - 邀请码注册、账号密码登录、随机 API Key 生成与吊销

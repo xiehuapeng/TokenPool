@@ -29,6 +29,13 @@ live database as part of an application rollback.
 
 ## Cutover
 
+For schema `20260915_0009`, the same additive-migration rules apply: nullable
+`original_model` and `route_reason` fields, one-second PostgreSQL lock wait,
+no historical backfill or cost changes. Old records display as uncollected.
+Keep both columns on application rollback. The routing smoke must also check
+that explicit non-vision image requests return 400 before generation, and
+accepted requests expose their actual model and routing reason.
+
 1. Start staged backend on loopback 8001, as `tokenpool`, with the existing secret
    EnvironmentFile. Override `AUTO_MIGRATE=false`, `SEED_ON_STARTUP=false`, and
    `MODEL_SYNC_ENABLED=false`. Set `USAGE_RUNTIME_DIR` to the **same physical

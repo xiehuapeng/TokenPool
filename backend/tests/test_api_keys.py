@@ -311,12 +311,9 @@ async def test_vision_reroute_and_friendly_error(client):
         rerouted = await client.post(
             "/v1/chat/completions", headers=api_headers, json=image_payload
         )
-        assert rerouted.status_code == 200, rerouted.text
-        assert rerouted.json()["model"] == "deepseek-v4-flash"
-        # 图片请求回退到新上架的DeepSeek视觉实验模型（同Provider优先）。
-        assert (
-            deepseek_fake.upstream_models[-1] == "deepseek-v4-flash-vision-exp"
-        )
+        assert rerouted.status_code == 400, rerouted.text
+        assert rerouted.json()["error"]["code"] == "vision_not_supported"
+        assert deepseek_fake.upstream_models == []
         assert glm_fake.upstream_models == []
         assert qwen_fake.upstream_models == []
 
@@ -364,7 +361,7 @@ async def test_vision_reroute_and_friendly_error(client):
             await session.commit()
         try:
             blocked = await client.post(
-                "/v1/chat/completions", headers=api_headers, json=image_payload
+                "/v1/chat/completions", headers=api_headers, json=virtual_image
             )
             assert blocked.status_code == 400, blocked.text
             assert blocked.json()["error"]["code"] == "vision_not_supported"
