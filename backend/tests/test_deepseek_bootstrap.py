@@ -95,7 +95,7 @@ async def test_bootstrap_seeds_vision_exp_model(client):
     assert model is not None
     assert model.enabled is True
     assert model.default_allowed is True
-    assert model.sort_order == 2
+    assert model.sort_order == 3
     assert (model.capabilities or {}).get("vision") is True
     assert pricing is not None
     assert pricing.input_price == Decimal("1")
@@ -126,6 +126,33 @@ async def test_bootstrap_seeds_official_flash_with_vision_and_pricing(client):
         assert pricing.peak_input_price == Decimal("2")
         assert pricing.peak_cached_input_price == Decimal("0.04")
         assert pricing.peak_output_price == Decimal("8")
+
+
+@pytest.mark.asyncio
+async def test_deepseek_flash_precedes_other_vision_models_for_fallback(client):
+    # 视觉回退取 list_permitted_models 中第一个带视觉标记的模型，而该列表
+    # 按 sort_order 排序。deepseek-flash 必须排在其余视觉模型之前，才能在
+    # 带图请求中成为回退首选；同时 deepseek-v4-flash 仍保持第一位，
+    # 使 team-coding 无偏好时的默认模型不变。
+    async with SessionLocal() as session:
+        rows = (
+            await session.execute(
+                select(ModelConfig.public_model, ModelConfig.sort_order)
+                .where(ModelConfig.enabled.is_(True))
+                .order_by(ModelConfig.sort_order, ModelConfig.public_model)
+            )
+        ).all()
+        vision_flags = {
+            item.public_model: bool((item.capabilities or {}).get("vision"))
+            for item in await session.scalars(select(ModelConfig))
+        }
+
+    ordered = [name for name, _ in rows]
+    assert ordered[0] == "deepseek-v4-flash", "默认模型必须保持第一位"
+    vision_order = [name for name in ordered if vision_flags.get(name)]
+    assert vision_order[0] == "deepseek-flash", (
+        f"视觉回退首选应为 deepseek-flash，实际为 {vision_order[:3]}"
+    )
 
 
 @pytest.mark.asyncio

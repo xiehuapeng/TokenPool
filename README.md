@@ -410,7 +410,11 @@ systemctl reload nginx
   对图片输入不报错但忽略图片，与官方「不支持图像理解」一致。
 - 视觉标记由 8 个增至 9 个（README 此前记为 7，遗漏了
   `deepseek-v4-flash-vision-exp`，本次一并对齐）；后端测试基线
-  140 passed / 1 skipped。
+  141 passed / 1 skipped。
+- 调整视觉回退顺序：`deepseek-flash` 的 `sort_order` 由同步入库区段（1000）
+  前移至 `deepseek-v4-flash` 之后，成为带图请求回退首选。`deepseek-v4-flash`
+  仍为第一位，`team-coding` 无偏好时的默认模型不变。`sort_order` 是单一
+  全局顺序，同时决定默认模型与视觉回退首选，改动时需一并考虑。
 
 ## 待生效变更（DeepSeek 公告）
 

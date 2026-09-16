@@ -323,9 +323,9 @@ async def test_vision_reroute_and_friendly_error(client):
             "/v1/chat/completions", headers=api_headers, json=virtual_image
         )
         assert virtual_rerouted.status_code == 200, virtual_rerouted.text
-        assert (
-            deepseek_fake.upstream_models[-1] == "deepseek-v4-flash-vision-exp"
-        )
+        # 视觉回退首选由 sort_order 决定：deepseek-flash 排在
+        # deepseek-v4-flash 之后、其余视觉模型之前。
+        assert deepseek_fake.upstream_models[-1] == "deepseek-flash"
 
         text_only = await client.post(
             "/v1/chat/completions",

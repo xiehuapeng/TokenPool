@@ -194,15 +194,18 @@ async def seed_initial_data() -> None:
             deepseek.base_url = settings.deepseek_base_url
             deepseek.enabled = bool(settings.deepseek_api_key.get_secret_value())
 
+        # 元组顺序即 sort_order（index），同时决定 team-coding 无偏好时的默认
+        # 模型和视觉回退的首选。deepseek-v4-flash 保持第一位（默认模型），
+        # deepseek-flash 紧随其后，使其成为视觉回退的第一候选。
         for index, (model_id, display_name) in enumerate(
             (
                 ("deepseek-v4-flash", "DeepSeek V4 Flash"),
+                ("deepseek-flash", "DeepSeek Flash"),
                 ("deepseek-v4-pro", "DeepSeek V4 Pro"),
                 (
                     "deepseek-v4-flash-vision-exp",
                     "DeepSeek V4 Flash Vision Exp",
                 ),
-                ("deepseek-flash", "DeepSeek Flash"),
             )
         ):
             capabilities = {
