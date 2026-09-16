@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.dependencies import DbSession, admin_user
 from app.models import (
+    AdminAuditLog,
     ApiKey,
     InviteCode,
     ModelConfig,
@@ -28,6 +29,7 @@ from app.schemas.admin import (
 )
 from app.schemas.api_key import SecretReveal
 from app.providers.registry import provider_registry
+from app.services.audit_service import record_admin_action
 from app.services.model_sync import record_provider_model_discovery
 from app.services.usage_service import backfill_usage_costs
 from app.utils.errors import GatewayError
@@ -78,7 +80,11 @@ async def _list_upstream_models(provider: ProviderConfig) -> list:
 
 @router.get("/users")
 async def list_users(_admin: Admin, session: DbSession) -> list[dict]:
-    users = await session.scalars(select(User).order_by(User.created_at.desc()))
+    users = await session.scalars(
+        select(User)
+        .where(User.status != "deleted")
+        .order_by(User.created_at.desc())
+    )
     return [
         {
             "id": user.id,
@@ -150,6 +156,16 @@ async def create_invite_code(
         created_by=admin.id,
     )
     session.add(item)
+    await session.flush()
+    await record_admin_action(
+        session,
+        admin,
+        "invite_code.create",
+        target_type="invite_code",
+        target_id=item.id,
+        target_label=item.code_prefix,
+        detail={"label": item.label, "max_uses": item.max_uses},
+    )
     await session.commit()
     await session.refresh(item)
     return {
@@ -187,7 +203,7 @@ async def reveal_invite_code(
 async def update_invite_code_status(
     invite_code_id: int,
     body: InviteCodeStatusUpdate,
-    _admin: Admin,
+    admin: Admin,
     session: DbSession,
 ) -> dict:
     item = await session.get(InviteCode, invite_code_id)
@@ -195,14 +211,24 @@ async def update_invite_code_status(
         raise GatewayError(
             "邀请码不存在", status_code=404, code="invite_code_not_found"
         )
+    previous_status = item.status
     item.status = body.status
+    await record_admin_action(
+        session,
+        admin,
+        "invite_code.status",
+        target_type="invite_code",
+        target_id=item.id,
+        target_label=item.code_prefix,
+        detail={"from": previous_status, "to": body.status},
+    )
     await session.commit()
     return {"id": item.id, "status": item.status}
 
 
 @router.delete("/invite-codes/{invite_code_id}")
 async def delete_invite_code(
-    invite_code_id: int, _admin: Admin, session: DbSession
+    invite_code_id: int, admin: Admin, session: DbSession
 ) -> dict:
     item = await session.get(InviteCode, invite_code_id)
     if item is None:
@@ -220,13 +246,22 @@ async def delete_invite_code(
             status_code=409,
             code="invite_code_in_use",
         )
+    code_prefix = item.code_prefix
     await session.delete(item)
+    await record_admin_action(
+        session,
+        admin,
+        "invite_code.delete",
+        target_type="invite_code",
+        target_id=invite_code_id,
+        target_label=code_prefix,
+    )
     await session.commit()
     return {"id": invite_code_id, "deleted": True}
 
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)
-async def create_user(body: UserCreate, _admin: Admin, session: DbSession) -> dict:
+async def create_user(body: UserCreate, admin: Admin, session: DbSession) -> dict:
     existing = await session.scalar(
         select(User).where(func.lower(User.username) == body.username.lower())
     )
@@ -242,6 +277,16 @@ async def create_user(body: UserCreate, _admin: Admin, session: DbSession) -> di
     )
     session.add(user)
     try:
+        await session.flush()
+        await record_admin_action(
+            session,
+            admin,
+            "user.create",
+            target_type="user",
+            target_id=user.id,
+            target_label=user.username,
+            detail={"is_admin": body.is_admin},
+        )
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
@@ -261,9 +306,67 @@ async def update_user_status(
         raise GatewayError("用户不存在", status_code=404, code="user_not_found")
     if user.id == admin.id and body.status == "disabled":
         raise GatewayError("不能禁用当前管理员", code="cannot_disable_self")
+    previous_status = user.status
     user.status = body.status
+    await record_admin_action(
+        session,
+        admin,
+        "user.status",
+        target_type="user",
+        target_id=user.id,
+        target_label=user.username,
+        detail={"from": previous_status, "to": body.status},
+    )
     await session.commit()
     return {"id": user.id, "status": user.status}
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: int, admin: Admin, session: DbSession) -> dict:
+    """Retire a user without destroying their billing history.
+
+    ``usage_logs.user_id`` is NOT NULL with no ON DELETE action, and the
+    project never rewrites historical usage. A hard delete would either fail on
+    that constraint or force a migration that drops attribution from the cost
+    records. Instead the account is marked ``deleted``: it disappears from the
+    admin list and can no longer authenticate, while every usage row keeps the
+    username it was billed under.
+    """
+    user = await session.get(User, user_id)
+    if user is None or user.status == "deleted":
+        raise GatewayError("用户不存在", status_code=404, code="user_not_found")
+    if user.id == admin.id:
+        raise GatewayError("不能删除当前管理员", code="cannot_delete_self")
+
+    keys = list(
+        await session.scalars(select(ApiKey).where(ApiKey.user_id == user.id))
+    )
+    active_keys = 0
+    for key in keys:
+        if key.status == "active":
+            active_keys += 1
+        key.status = "revoked"
+        key.key_hash = generate_retired_api_key_hash()
+        key.secret_ciphertext = None
+
+    username = user.username
+    user.status = "deleted"
+    # Replace the stored hash so the account cannot be logged into even if the
+    # status check were ever bypassed. An unusable random marker keeps this
+    # column non-null without retaining a verifiable credential.
+    user.password_hash = f"deleted${generate_retired_api_key_hash()}"
+
+    await record_admin_action(
+        session,
+        admin,
+        "user.delete",
+        target_type="user",
+        target_id=user.id,
+        target_label=username,
+        detail={"revoked_keys": len(keys), "active_keys": active_keys},
+    )
+    await session.commit()
+    return {"id": user.id, "username": username, "deleted": True}
 
 
 @router.get("/api-keys")
@@ -301,7 +404,7 @@ async def list_keys(_admin: Admin, session: DbSession) -> list[dict]:
 
 @router.patch("/api-keys/{key_id}/status")
 async def update_key_status(
-    key_id: int, body: KeyStatusUpdate, _admin: Admin, session: DbSession
+    key_id: int, body: KeyStatusUpdate, admin: Admin, session: DbSession
 ) -> dict:
     key = await session.get(ApiKey, key_id)
     if key is None:
@@ -309,6 +412,15 @@ async def update_key_status(
     key.status = body.status
     key.key_hash = generate_retired_api_key_hash()
     key.secret_ciphertext = None
+    await record_admin_action(
+        session,
+        admin,
+        "api_key.revoke",
+        target_type="api_key",
+        target_id=key.id,
+        target_label=key.key_prefix,
+        detail={"name": key.name, "user_id": key.user_id},
+    )
     await session.commit()
     return {"id": key.id, "status": key.status}
 
@@ -371,13 +483,27 @@ async def list_models(_admin: Admin, session: DbSession) -> list[dict]:
 
 @router.patch("/models/{model_id}")
 async def update_model(
-    model_id: int, body: ModelUpdate, _admin: Admin, session: DbSession
+    model_id: int, body: ModelUpdate, admin: Admin, session: DbSession
 ) -> dict:
     model = await session.get(ModelConfig, model_id)
     if model is None:
         raise GatewayError("模型不存在", status_code=404, code="model_not_found")
+    changed = {}
     for field, value in body.model_dump(exclude_none=True).items():
+        previous = getattr(model, field)
+        if previous != value:
+            changed[field] = {"from": previous, "to": value}
         setattr(model, field, value)
+    if changed:
+        await record_admin_action(
+            session,
+            admin,
+            "model.update",
+            target_type="model",
+            target_id=model.id,
+            target_label=model.public_model,
+            detail=changed,
+        )
     await session.commit()
     return {"id": model.id, "enabled": model.enabled}
 
@@ -398,7 +524,7 @@ PRICING_NULLABLE_FIELDS = frozenset(
 
 @router.patch("/models/{model_id}/pricing")
 async def update_model_pricing(
-    model_id: int, body: ModelPricingUpdate, _admin: Admin, session: DbSession
+    model_id: int, body: ModelPricingUpdate, admin: Admin, session: DbSession
 ) -> dict:
     model = await session.get(ModelConfig, model_id)
     if model is None:
@@ -413,6 +539,7 @@ async def update_model_pricing(
         )
         session.add(pricing)
     changes = body.model_dump(exclude_unset=True)
+    recorded = {}
     for field, value in changes.items():
         if value is None and field not in PRICING_NULLABLE_FIELDS:
             raise GatewayError(
@@ -420,7 +547,23 @@ async def update_model_pricing(
                 status_code=400,
                 code="pricing_field_not_nullable",
             )
+        previous = getattr(pricing, field, None)
+        if previous != value:
+            recorded[field] = {
+                "from": float(previous) if hasattr(previous, "quantize") else previous,
+                "to": float(value) if hasattr(value, "quantize") else value,
+            }
         setattr(pricing, field, value)
+    if created or recorded:
+        await record_admin_action(
+            session,
+            admin,
+            "model.pricing",
+            target_type="model",
+            target_id=model.id,
+            target_label=model.public_model,
+            detail={"created": created, "changes": recorded},
+        )
     await session.commit()
     await session.refresh(pricing)
     return {
@@ -487,7 +630,7 @@ async def provider_available_models(
 async def sync_provider_models(
     provider_code: str,
     body: ProviderModelSync,
-    _admin: Admin,
+    admin: Admin,
     session: DbSession,
 ) -> dict:
     provider = await session.scalar(
@@ -537,6 +680,19 @@ async def sync_provider_models(
         model.default_allowed = body.default_allowed
         model.sort_order = -100 + index
         synced.append(model_id)
+    await record_admin_action(
+        session,
+        admin,
+        "provider.sync_models",
+        target_type="provider",
+        target_id=provider.id,
+        target_label=provider.code,
+        detail={
+            "models": synced,
+            "enable": body.enable,
+            "default_allowed": body.default_allowed,
+        },
+    )
     await session.commit()
     return {"provider": provider.code, "synced": synced}
 
@@ -868,6 +1024,46 @@ async def user_usage_detail(
     }
 
 
+@router.get("/audit-logs")
+async def audit_logs(
+    _admin: Admin,
+    session: DbSession,
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    action: str | None = None,
+    username: str | None = None,
+) -> dict:
+    """Administrator actions, newest first. Append-only; never edited."""
+    conditions = []
+    if action:
+        conditions.append(AdminAuditLog.action == action)
+    if username:
+        conditions.append(AdminAuditLog.admin_username == username)
+    statement = select(AdminAuditLog).order_by(AdminAuditLog.created_at.desc())
+    count_statement = select(func.count(AdminAuditLog.id))
+    if conditions:
+        statement = statement.where(*conditions)
+        count_statement = count_statement.where(*conditions)
+    total = await session.scalar(count_statement)
+    rows = await session.scalars(statement.limit(limit).offset(offset))
+    return {
+        "total": total or 0,
+        "items": [
+            {
+                "id": entry.id,
+                "created_at": beijing_iso(entry.created_at),
+                "admin_username": entry.admin_username,
+                "action": entry.action,
+                "target_type": entry.target_type,
+                "target_id": entry.target_id,
+                "target_label": entry.target_label,
+                "detail": entry.detail,
+            }
+            for entry in rows
+        ],
+    }
+
+
 @router.get("/usage-logs")
 async def usage_logs(
     _admin: Admin,
@@ -947,11 +1143,26 @@ async def usage_logs(
 
 @router.post("/usage-logs/backfill-costs")
 async def run_usage_cost_backfill(
-    _admin: Admin,
+    admin: Admin,
+    session: DbSession,
     dry_run: bool = Query(default=False),
 ) -> dict:
     """按模型平均缓存命中率推算历史日志费用，标记为 estimated。
 
     dry_run=true 时仅预览将回填的数量与推算出的总费用，不落库。
     """
-    return await backfill_usage_costs(dry_run=dry_run)
+    result = await backfill_usage_costs(dry_run=dry_run)
+    # A dry run mutates nothing, so it leaves no audit record.
+    if not dry_run:
+        await record_admin_action(
+            session,
+            admin,
+            "usage.backfill_costs",
+            target_type="usage_logs",
+            detail={
+                "scanned": result.get("scanned"),
+                "updated": result.get("updated"),
+            },
+        )
+        await session.commit()
+    return result

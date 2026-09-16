@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateCredentials } from "../src/utils/authValidation.ts";
+import {
+  validateCredentials,
+  validateInviteCode,
+} from "../src/utils/authValidation.ts";
 
 test("login accepts existing credentials without applying registration policy", () => {
   for (const [username, password] of [
@@ -31,4 +34,23 @@ test("registration retains username and password requirements", () => {
   assert.notEqual(validateCredentials("register", "_team", "StrongPass123!"), null);
   assert.notEqual(validateCredentials("register", "team", "12345678"), null);
   assert.notEqual(validateCredentials("register", "team", "abcdefgh"), null);
+});
+
+test("reset mode applies the same credential policy as registration", () => {
+  // A reset creates a usable credential, so it must not fall back to the
+  // looser login rules (the old two-valued branch would have done exactly that).
+  assert.equal(validateCredentials("reset", "team.user-1", "StrongPass123!"), null);
+  assert.notEqual(validateCredentials("reset", "_team", "StrongPass123!"), null);
+  assert.notEqual(validateCredentials("reset", "team", "12345678"), null);
+  assert.notEqual(validateCredentials("reset", "team", "abcdefgh"), null);
+  assert.notEqual(validateCredentials("reset", "a", "password"), null);
+});
+
+test("invite code validation rejects malformed values", () => {
+  assert.equal(validateInviteCode("TEAMCODE2026"), null);
+  assert.equal(validateInviteCode("team_code-2026"), null);
+  assert.equal(validateInviteCode("  TEAMCODE2026  "), null);
+  for (const value of ["short", "", "has space", "bad!char", "x".repeat(65)]) {
+    assert.notEqual(validateInviteCode(value), null);
+  }
 });

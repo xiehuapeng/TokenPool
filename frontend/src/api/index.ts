@@ -52,6 +52,12 @@ export const authApi = {
       password,
       invite_code: inviteCode,
     }),
+  resetPassword: (username: string, password: string, inviteCode: string) =>
+    http.post("/api/auth/reset-password", {
+      username,
+      password,
+      invite_code: inviteCode,
+    }),
   me: () => http.get<CurrentUser>("/api/auth/me"),
 };
 
@@ -90,6 +96,9 @@ export const adminApi = {
     http.delete(`/api/admin/invite-codes/${id}`),
   setUserStatus: (id: number, status: string) =>
     http.patch(`/api/admin/users/${id}/status`, { status }),
+  deleteUser: (id: number) => http.delete(`/api/admin/users/${id}`),
+  auditLogs: (params: { limit?: number; offset?: number; action?: string } = {}) =>
+    http.get("/api/admin/audit-logs", { params }),
   keys: () => http.get("/api/admin/api-keys"),
   setKeyStatus: (id: number, status: string) =>
     http.patch(`/api/admin/api-keys/${id}/status`, { status }),

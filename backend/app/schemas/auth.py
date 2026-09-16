@@ -56,6 +56,34 @@ class RegisterRequest(BaseModel):
         return validate_password_strength(value)
 
 
+class PasswordResetRequest(BaseModel):
+    """Reset a forgotten password with an administrator-provided invite code.
+
+    Resetting does not consume the invite code's usage count: that counter
+    tracks how many accounts were created, and a reset creates none.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(min_length=3, max_length=64, pattern=USERNAME_PATTERN)
+    password: str = Field(min_length=8, max_length=64)
+    invite_code: str = Field(
+        min_length=8,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+    )
+
+    @field_validator("username", "invite_code", mode="before")
+    @classmethod
+    def trim_text(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        return validate_password_strength(value)
+
+
 class UserView(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

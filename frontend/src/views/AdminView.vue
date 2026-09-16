@@ -29,6 +29,10 @@ const stats = ref<any>({
 });
 const logs = ref<any[]>([]);
 const totalLogs = ref(0);
+const auditLogs = ref<any[]>([]);
+const auditTotal = ref(0);
+const auditLoading = ref(false);
+const auditFilters = reactive({ action: "" });
 const statsLoading = ref(false);
 const logsLoading = ref(false);
 const logPage = ref(1);
@@ -128,6 +132,10 @@ const keyGroups = computed(() => {
     }
   >();
   for (const key of keys.value) {
+    // Revoked keys are retired for good; the admin page only manages keys that
+    // can still be used. Their call/cost history stays in the usage stats,
+    // which read separately from this list.
+    if (key.status !== "active") continue;
     const group = groups.get(key.username) || {
       username: key.username,
       keys: [] as any[],
@@ -136,7 +144,7 @@ const keyGroups = computed(() => {
       totalCost: 0,
     };
     group.keys.push(key);
-    if (key.status === "active") group.activeCount += 1;
+    group.activeCount += 1;
     group.totalCalls += Number(key.total_calls || 0);
     group.totalCost += Number(key.total_cost || 0);
     groups.set(key.username, group);
@@ -224,6 +232,7 @@ async function loadAll() {
       adminApi.providers(),
       loadStats(),
       loadLogs(),
+      loadAuditLogs(),
     ]);
     users.value = u.data;
     inviteCodes.value = i.data;
@@ -338,6 +347,29 @@ async function deleteInviteCode(row: any) {
   try {
     await adminApi.deleteInviteCode(row.id);
     ElMessage.success("邀请码已删除");
+    await loadAll();
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  }
+}
+
+async function deleteUser(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除用户 ${row.username}？该账号将无法登录，名下所有 API Key 会被吊销。其历史调用记录会保留，不计入任何统计丢失。`,
+      "删除用户",
+      {
+        type: "warning",
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+      },
+    );
+  } catch {
+    return;
+  }
+  try {
+    await adminApi.deleteUser(row.id);
+    ElMessage.success("用户已删除");
     await loadAll();
   } catch (error) {
     ElMessage.error(errorMessage(error));
@@ -492,6 +524,72 @@ async function loadLogs() {
       totalLogs.value = response.data.total;
     },
   );
+}
+
+async function loadAuditLogs() {
+  auditLoading.value = true;
+  try {
+    const params: { limit: number; action?: string } = { limit: 100 };
+    if (auditFilters.action) params.action = auditFilters.action;
+    const response = await adminApi.auditLogs(params);
+    auditLogs.value = response.data.items;
+    auditTotal.value = response.data.total;
+  } catch (error) {
+    ElMessage.error(errorMessage(error));
+  } finally {
+    auditLoading.value = false;
+  }
+}
+
+async function applyAuditFilters() {
+  await loadAuditLogs();
+}
+
+async function resetAuditFilters() {
+  auditFilters.action = "";
+  await loadAuditLogs();
+}
+
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  "user.create": "创建用户",
+  "user.status": "修改用户状态",
+  "user.delete": "删除用户",
+  "invite_code.create": "创建邀请码",
+  "invite_code.status": "修改邀请码状态",
+  "invite_code.delete": "删除邀请码",
+  "api_key.revoke": "吊销 API Key",
+  "model.update": "修改模型",
+  "model.pricing": "修改模型计价",
+  "provider.sync_models": "同步 Provider 模型",
+  "usage.backfill_costs": "历史费用回填",
+};
+
+function auditActionLabel(action: string): string {
+  return AUDIT_ACTION_LABELS[action] || action;
+}
+
+function auditDetailText(detail: any): string {
+  if (!detail) return "";
+  if (detail.changes) {
+    const parts = Object.entries(detail.changes).map(
+      ([field, value]: [string, any]) =>
+        `${field}: ${value?.from ?? "—"} → ${value?.to ?? "—"}`,
+    );
+    return (detail.created ? "新建计价；" : "") + parts.join("；");
+  }
+  if (detail.from !== undefined && detail.to !== undefined) {
+    return `${detail.from} → ${detail.to}`;
+  }
+  if (detail.models) return `模型：${detail.models.join("、")}`;
+  if (detail.revoked_keys !== undefined) {
+    return `吊销 ${detail.revoked_keys} 个 Key（其中启用 ${detail.active_keys} 个）`;
+  }
+  if (detail.updated !== undefined) {
+    return `扫描 ${detail.scanned ?? 0} 条，更新 ${detail.updated} 条`;
+  }
+  if (detail.label) return `用途：${detail.label}`;
+  if (detail.name) return `名称：${detail.name}`;
+  return "";
 }
 
 async function applyStatsFilters() {
@@ -877,13 +975,21 @@ onUnmounted(() => {
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" min-width="150">
+            <el-table-column label="操作" min-width="220">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openUserUsage(row)">
                   消费明细
                 </el-button>
                 <el-button link @click="toggleUser(row)">
                   {{ row.status === "active" ? "禁用" : "启用" }}
+                </el-button>
+                <el-button
+                  link
+                  type="danger"
+                  :disabled="row.is_admin"
+                  @click="deleteUser(row)"
+                >
+                  删除
                 </el-button>
               </template>
             </el-table-column>
@@ -973,7 +1079,13 @@ onUnmounted(() => {
         </el-tab-pane>
 
         <el-tab-pane label="API Key" name="keys">
-          <el-empty v-if="!keyGroups.length" description="暂无 API Key" />
+          <el-alert
+            title="仅显示仍可使用的 API Key。已吊销的 Key 不再列出，其在「Token 统计」中的历史调用与费用仍然保留。"
+            type="info"
+            :closable="false"
+            class="pages-notice"
+          />
+          <el-empty v-if="!keyGroups.length" description="暂无可用 API Key" />
           <div
             v-for="group in keyGroups"
             :key="group.username"
@@ -982,7 +1094,7 @@ onUnmounted(() => {
             <div class="key-user-heading">
               <strong>{{ group.username }}</strong>
               <span>
-                {{ group.keys.length }} 个 Key（{{ group.activeCount }} 个启用）
+                {{ group.keys.length }} 个可用 Key
                 · 累计调用 {{ formatTokens(group.totalCalls) }} 次
                 · 费用 {{ formatCost(group.totalCost) }}
               </span>
@@ -1534,6 +1646,63 @@ onUnmounted(() => {
               @current-change="changeLogPage"
             />
           </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="审计日志" name="audit">
+          <el-alert
+            title="记录管理员在后台的写操作，按时间倒序，仅供查阅，不可修改或删除。"
+            type="info"
+            :closable="false"
+            class="pages-notice"
+          />
+          <div class="usage-filter-bar">
+            <el-select
+              v-model="auditFilters.action"
+              clearable
+              placeholder="全部操作类型"
+              @change="applyAuditFilters"
+            >
+              <el-option
+                v-for="(label, action) in AUDIT_ACTION_LABELS"
+                :key="action"
+                :label="label"
+                :value="action"
+              />
+            </el-select>
+            <div class="usage-filter-actions">
+              <el-button type="primary" :loading="auditLoading" @click="applyAuditFilters">
+                查询
+              </el-button>
+              <el-button @click="resetAuditFilters">重置</el-button>
+            </div>
+          </div>
+          <el-table :data="auditLogs" v-loading="auditLoading">
+            <el-table-column label="时间" min-width="190">
+              <template #default="{ row }">
+                {{ formatBeijingTime(row.created_at) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="admin_username" label="操作人" min-width="120" />
+            <el-table-column label="操作" min-width="150">
+              <template #default="{ row }">
+                {{ auditActionLabel(row.action) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="对象" min-width="190">
+              <template #default="{ row }">
+                <template v-if="row.target_label">
+                  {{ row.target_label }}
+                  <span class="muted">（{{ row.target_type }} #{{ row.target_id }}）</span>
+                </template>
+                <span v-else>—</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="变更内容" min-width="260">
+              <template #default="{ row }">
+                {{ auditDetailText(row.detail) || "—" }}
+              </template>
+            </el-table-column>
+          </el-table>
         </el-tab-pane>
       </el-tabs>
     </el-card>

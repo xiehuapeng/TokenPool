@@ -8,7 +8,13 @@ from sqlalchemy.exc import IntegrityError
 
 from app.dependencies import DbSession, current_user
 from app.models import InviteCode, User
-from app.schemas.auth import LoginRequest, LoginResponse, RegisterRequest, UserView
+from app.schemas.auth import (
+    LoginRequest,
+    LoginResponse,
+    PasswordResetRequest,
+    RegisterRequest,
+    UserView,
+)
 from app.services.auth_service import authenticate_password
 from app.utils.errors import GatewayError
 from app.utils.security import create_access_token, hash_invite_code, hash_password
@@ -18,24 +24,15 @@ from app.utils.time import utc_now
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-def build_login_response(user: User) -> LoginResponse:
-    token, expires_in = create_access_token(user.id)
-    return LoginResponse(
-        access_token=token,
-        expires_in=expires_in,
-        user=UserView.model_validate(user),
-    )
+async def _load_valid_invite(session: DbSession, raw_code: str) -> InviteCode:
+    """Return the matching active invite code or raise a single opaque error.
 
-
-@router.post(
-    "/register",
-    response_model=LoginResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def register(body: RegisterRequest, session: DbSession) -> LoginResponse:
+    The four rejection reasons (missing, disabled, expired, exhausted) share
+    one message on purpose so a caller cannot probe which check failed.
+    """
     invite = await session.scalar(
         select(InviteCode)
-        .where(InviteCode.code_hash == hash_invite_code(body.invite_code))
+        .where(InviteCode.code_hash == hash_invite_code(raw_code))
         .with_for_update()
     )
     now = utc_now()
@@ -61,6 +58,25 @@ async def register(body: RegisterRequest, session: DbSession) -> LoginResponse:
             status_code=400,
             code="invalid_invite_code",
         )
+    return invite
+
+
+def build_login_response(user: User) -> LoginResponse:
+    token, expires_in = create_access_token(user.id)
+    return LoginResponse(
+        access_token=token,
+        expires_in=expires_in,
+        user=UserView.model_validate(user),
+    )
+
+
+@router.post(
+    "/register",
+    response_model=LoginResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def register(body: RegisterRequest, session: DbSession) -> LoginResponse:
+    invite = await _load_valid_invite(session, body.invite_code)
 
     existing = await session.scalar(
         select(User).where(func.lower(User.username) == body.username.lower())
@@ -104,6 +120,34 @@ async def login(body: LoginRequest, session: DbSession) -> LoginResponse:
             error_type="authentication_error",
             code="invalid_credentials",
         )
+    return build_login_response(user)
+
+
+@router.post("/reset-password", response_model=LoginResponse)
+async def reset_password(
+    body: PasswordResetRequest, session: DbSession
+) -> LoginResponse:
+    """Set a new password for an existing account, gated by an invite code.
+
+    The administrator hands the user a working invite code; possession of it
+    is the authorization to reset. The code's usage_count is left untouched
+    because no account is created.
+    """
+    await _load_valid_invite(session, body.invite_code)
+
+    user = await session.scalar(
+        select(User).where(func.lower(User.username) == body.username.lower())
+    )
+    if user is None or user.status == "deleted":
+        raise GatewayError(
+            "用户名或密码错误",
+            status_code=401,
+            error_type="authentication_error",
+            code="invalid_credentials",
+        )
+    user.password_hash = await asyncio.to_thread(hash_password, body.password)
+    await session.commit()
+    await session.refresh(user)
     return build_login_response(user)
 
 
