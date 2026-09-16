@@ -275,6 +275,7 @@ MODEL_DESCRIPTIONS = {
     "glm-4.5": "GLM 4.5 标准版，适合低成本兜底场景。",
     "glm-4.5-air": "GLM 4.5 Air 轻量版，速度快、成本最低，适合简单任务与批量处理。",
     "deepseek-v4-pro": "复杂编程、架构设计、算法、技术推理",
+    "deepseek-flash": "官方推荐模型名（V4.1-Flash）：日常编程、Bug 修复、脚本、截图分析",
     "deepseek-v4-flash": "日常编程、Bug 修复、脚本、技术问答",
     "deepseek-v4-flash-vision-exp": (
         "实验性视觉理解：截图分析、界面排查、图表解读；价格与 flash 相同"
@@ -290,6 +291,7 @@ MODEL_DESCRIPTIONS = {
 RECOMMENDED_MODELS = {"glm-5.3-flash"}
 
 MODEL_INPUT_CONTEXT: dict[str, dict] = {
+    "deepseek-flash": {"modalities": ["图片", "文本"], "context_window": "1M"},
     "deepseek-v4-flash": {"modalities": ["文本"], "context_window": "1M"},
     "deepseek-v4-pro": {"modalities": ["文本"], "context_window": "1M"},
     "deepseek-v4-flash-vision-exp": {

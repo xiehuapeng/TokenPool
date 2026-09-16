@@ -10,6 +10,7 @@ from app.utils.time import utc_now
 
 
 VISION_CAPABLE_MODELS = {
+    "deepseek-flash",
     "deepseek-v4-flash-vision-exp",
     "glm-5.3-flash",
     "qwen3.8-max",
@@ -21,6 +22,16 @@ VISION_CAPABLE_MODELS = {
 }
 
 SEED_PRICINGS: dict[str, dict] = {
+    "deepseek-flash": {
+        "input_price": Decimal("1"),
+        "cached_input_price": Decimal("0.02"),
+        "output_price": Decimal("4"),
+        "peak_input_price": Decimal("2"),
+        "peak_cached_input_price": Decimal("0.04"),
+        "peak_output_price": Decimal("8"),
+        "note": "DeepSeek官网价（官方模型名deepseek-flash，即V4.1-Flash，2026-09-10起），"
+        "非高峰档；工作日9-12/14-18（北京时间）高峰翻倍；支持图像理解",
+    },
     "deepseek-v4-flash": {
         "input_price": Decimal("1"),
         "cached_input_price": Decimal("0.02"),
@@ -191,6 +202,7 @@ async def seed_initial_data() -> None:
                     "deepseek-v4-flash-vision-exp",
                     "DeepSeek V4 Flash Vision Exp",
                 ),
+                ("deepseek-flash", "DeepSeek Flash"),
             )
         ):
             capabilities = {

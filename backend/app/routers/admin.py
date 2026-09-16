@@ -47,6 +47,7 @@ Admin = Annotated[User, Depends(admin_user)]
 def _provider_model_display_name(provider_code: str, model_id: str) -> str:
     if provider_code == "deepseek":
         names = {
+            "deepseek-flash": "DeepSeek Flash",
             "deepseek-v4-flash": "DeepSeek V4 Flash",
             "deepseek-v4-pro": "DeepSeek V4 Pro",
         }

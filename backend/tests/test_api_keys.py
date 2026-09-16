@@ -8,6 +8,7 @@ from app.database.session import SessionLocal
 from app.models import ApiKey, ModelConfig
 from app.providers.base import BaseProvider, ProviderResult
 from app.providers.registry import provider_registry
+from app.services.bootstrap import VISION_CAPABLE_MODELS
 from app.services.model_router import payload_contains_images
 from app.utils.time import utc_now
 
@@ -341,18 +342,7 @@ async def test_vision_reroute_and_friendly_error(client):
             vision_models = list(
                 await session.scalars(
                     select(ModelConfig).where(
-                        ModelConfig.public_model.in_(
-                            (
-                                "deepseek-v4-flash-vision-exp",
-                                "glm-5.3-flash",
-                                "qwen3.8-max",
-                                "qwen3.8-flash",
-                                "qwen3.7-plus",
-                                "kimi-k3",
-                                "kimi-k2.7-code",
-                                "kimi-k2.7-code-highspeed",
-                            )
-                        )
+                        ModelConfig.public_model.in_(VISION_CAPABLE_MODELS)
                     )
                 )
             )
@@ -370,18 +360,7 @@ async def test_vision_reroute_and_friendly_error(client):
                 vision_models = list(
                     await session.scalars(
                         select(ModelConfig).where(
-                            ModelConfig.public_model.in_(
-                                (
-                                    "deepseek-v4-flash-vision-exp",
-                                    "glm-5.3-flash",
-                                    "qwen3.8-max",
-                                    "qwen3.8-flash",
-                                    "qwen3.7-plus",
-                                    "kimi-k3",
-                                    "kimi-k2.7-code",
-                                    "kimi-k2.7-code-highspeed",
-                                )
-                            )
+                            ModelConfig.public_model.in_(VISION_CAPABLE_MODELS)
                         )
                     )
                 )

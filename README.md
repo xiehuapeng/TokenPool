@@ -21,8 +21,9 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
   返回 HTTP 400 `vision_not_supported`，包括历史消息仍带图片的情况。
   调用审计记录原模型、实际模型和选择原因，响应头提供 `X-Original-Model`、
   `X-Actual-Model`、`X-Route-Reason`（`explicit` / `preference` / `vision_fallback`）。当前
-  7 个模型带视觉标记（`glm-5.3-flash`、`qwen3.8-max`、`qwen3.8-flash`、
-  `qwen3.7-plus`、`kimi-k3`、`kimi-k2.7-code`、`kimi-k2.7-code-highspeed`）
+  9 个模型带视觉标记（`deepseek-flash`、`deepseek-v4-flash-vision-exp`、
+  `glm-5.3-flash`、`qwen3.8-max`、`qwen3.8-flash`、`qwen3.7-plus`、`kimi-k3`、
+  `kimi-k2.7-code`、`kimi-k2.7-code-highspeed`）
 - 邀请码注册、账号密码登录、随机 API Key 生成与吊销
 - API Key 使用 HMAC 摘要认证，另存加密副本供本人登录后重复查看；失效时销毁
 - 用户个人用量；用户「用量」页支持按时间和模型筛选，展示每个模型的 Token 与
@@ -42,7 +43,8 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
 
 | Provider | 模型 | 用途 | 图片识别 |
 |---|---|---|---|
-| DeepSeek | `deepseek-v4-flash` | 日常问答与简单任务 | |
+| DeepSeek | `deepseek-flash` | 官方推荐模型名（V4.1-Flash）：日常问答、简单任务与截图分析 | ✓ |
+| DeepSeek | `deepseek-v4-flash` | 日常问答与简单任务（旧名，上游仍映射到 V4.1-Flash） | |
 | DeepSeek | `deepseek-v4-pro` | 复杂任务与深度推理 | |
 | DeepSeek | `deepseek-v4-flash-vision-exp` | 实验性视觉理解（价格同 flash，图片折算为输入 Token 计费） | ✓ |
 | 智谱 GLM | `glm-4.5-air` | 通用 Coding 任务 | |
@@ -55,9 +57,6 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
 | 阿里云 Qwen | `qwen3.8-flash` | 轻量快速任务 | ✓ |
 | 阿里云 Qwen | `qwen3.7-plus` | 日常轻量任务 | ✓ |
 | 智谱 GLM | 其余 glm 系列（`glm-4.5`～`glm-5.2`） | 上游同步入库，默认关闭，管理员按需开放 | |
-
-> `glm-5.3-flash` 当前为限时半价（0.4/1.4 元），折扣至 2026-09-09；9 月 10 日
-> 起需按智谱官网当日价格核对并恢复原价（输入 0.8/输出 2.8）。
 
 ## 本地启动
 
@@ -395,13 +394,31 @@ systemctl reload nginx
   `test_deepseek_bootstrap`、`test_admin_pricing` 断言同步调整。
 - 历史账目与原始 Token 数据不受影响。
 
+### 2026-09-16（上架官方 deepseek-flash，作废 V4 Pro 下线计划）
+
+- DeepSeek 官方定价页现推荐模型名 `deepseek-flash`（即 DeepSeek-V4.1-Flash），
+  支持图像理解；旧名 `deepseek-v4-flash` 与 `deepseek-v4-flash-vision-exp`
+  仍可调用，由同一模型提供服务并按 Flash 计费。上架 `deepseek-flash`：补齐
+  Flash 计价（1/0.02/4，高峰 2/0.04/8）、视觉标记与展示说明，并沿用既有的
+  「同步采纳」逻辑（同步任务提前入库的关闭状态在下次启动补齐能力后随
+  Provider 开启一次）。
+- **作废 V4 Pro 下线计划**：官方注 2 说明 2026-09-14 之后继续提供 V4 Pro 且
+  计费不变；`deepseek-v4-pro` 的计价与开关保持原状，不执行退役与偏好迁移。
+  上游 `/models` 现返回 `deepseek-flash` 与 `deepseek-v4-pro`。
+- 实测确认：`deepseek-flash`、`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`
+  三个名称均能正确识别图片并返回 `model: deepseek-flash`；`deepseek-v4-pro`
+  对图片输入不报错但忽略图片，与官方「不支持图像理解」一致。
+- 视觉标记由 8 个增至 9 个（README 此前记为 7，遗漏了
+  `deepseek-v4-flash-vision-exp`，本次一并对齐）；后端测试基线
+  140 passed / 1 skipped。
+
 ## 待生效变更（DeepSeek 公告）
 
-- V4 Pro 下线（北京时间 2026-09-14 12:00）：上游将把 `deepseek-v4-pro` 路由
-  到 V4.1 Flash 并按其计费。计划待 V4.1 Flash 官方价格公布后一次性完成：
-  上架 `deepseek-v4.1-flash`（含计价）→ 按既有退役流程下线
-  `deepseek-v4-pro` 并自动迁移用户偏好 → 测试、部署生产、记录。
-  已创建 09-14 09:00 定时提醒（仅提醒，不自动执行）。
+- **无。** 原「V4 Pro 下线」计划已作废：DeepSeek 于 2026-09-14 撤销下线，官方
+  定价页注 2 明确「9 月 14 日之后继续提供 DeepSeek V4 Pro 的 API 调用服务，
+  计费方式保持不变」。生产库中 `deepseek-v4-pro` 的计价（4.5/0.15/13.5）与开关
+  均保持原状，无需迁移用户偏好。上游 `/models` 现返回 `deepseek-flash` 与
+  `deepseek-v4-pro` 两项。
 
 ## 后续演进
 

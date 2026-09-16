@@ -104,6 +104,99 @@ async def test_bootstrap_seeds_vision_exp_model(client):
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_seeds_official_flash_with_vision_and_pricing(client):
+    # 官方现已推荐 deepseek-flash（V4.1-Flash）：支持图像理解、价格与
+    # deepseek-v4-flash 相同，且同步任务可能已提前把它入库为关闭状态。
+    async with SessionLocal() as session:
+        model = await session.scalar(
+            select(ModelConfig).where(ModelConfig.public_model == "deepseek-flash")
+        )
+        assert model is not None
+        assert model.enabled is True
+        assert model.default_allowed is True
+        assert model.display_name == "DeepSeek Flash"
+        assert (model.capabilities or {}).get("vision") is True
+        pricing = await session.scalar(
+            select(ModelPricing).where(ModelPricing.model_config_id == model.id)
+        )
+        assert pricing is not None
+        assert pricing.input_price == Decimal("1")
+        assert pricing.cached_input_price == Decimal("0.02")
+        assert pricing.output_price == Decimal("4")
+        assert pricing.peak_input_price == Decimal("2")
+        assert pricing.peak_cached_input_price == Decimal("0.04")
+        assert pricing.peak_output_price == Decimal("8")
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_adopts_sync_discovered_official_flash_once(client):
+    # 同步任务提前发现时默认关闭且无视觉标记；上架种子应补齐能力并按
+    # Provider 开启一次，之后保留管理员的启停选择。
+    async with SessionLocal() as session:
+        model = await session.scalar(
+            select(ModelConfig).where(ModelConfig.public_model == "deepseek-flash")
+        )
+        model.enabled = False
+        model.default_allowed = False
+        model.sort_order = 1001
+        model.display_name = "deepseek-flash"
+        model.capabilities = {
+            "chat": True,
+            "stream": True,
+            "official_available": True,
+            "official_synced_at": "2026-09-13T16:55:46+00:00",
+        }
+        await session.commit()
+
+    await seed_initial_data()
+
+    async with SessionLocal() as session:
+        model = await session.scalar(
+            select(ModelConfig).where(ModelConfig.public_model == "deepseek-flash")
+        )
+        assert model.enabled is True
+        assert model.default_allowed is True
+        assert (model.capabilities or {}).get("vision") is True
+        assert model.display_name == "DeepSeek Flash"
+
+        model.enabled = False
+        model.default_allowed = False
+        await session.commit()
+
+    await seed_initial_data()
+
+    async with SessionLocal() as session:
+        model = await session.scalar(
+            select(ModelConfig).where(ModelConfig.public_model == "deepseek-flash")
+        )
+        assert model.enabled is False
+        assert model.default_allowed is False
+
+
+@pytest.mark.asyncio
+async def test_v4_pro_remains_available_with_official_pricing(client):
+    # DeepSeek 于 2026-09-14 撤销了 V4 Pro 下线计划，改为继续按原价提供。
+    # 计价与开关都必须保持不变；退役流程不应被触发。
+    async with SessionLocal() as session:
+        model = await session.scalar(
+            select(ModelConfig).where(ModelConfig.public_model == "deepseek-v4-pro")
+        )
+        assert model is not None
+        assert model.enabled is True
+        assert model.default_allowed is True
+        pricing = await session.scalar(
+            select(ModelPricing).where(ModelPricing.model_config_id == model.id)
+        )
+        assert pricing is not None
+        assert pricing.input_price == Decimal("4.5")
+        assert pricing.cached_input_price == Decimal("0.15")
+        assert pricing.output_price == Decimal("13.5")
+        assert pricing.peak_input_price == Decimal("9")
+        assert pricing.peak_cached_input_price == Decimal("0.3")
+        assert pricing.peak_output_price == Decimal("27")
+
+
+@pytest.mark.asyncio
 async def test_bootstrap_adopts_sync_discovered_vision_exp_once(client):
     # 模拟官方同步任务先于上架种子发现该模型：默认关闭、无视觉标记、
     # 排序落在同步区段。
