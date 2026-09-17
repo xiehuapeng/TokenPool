@@ -1602,18 +1602,6 @@ onUnmounted(() => {
             <el-table-column prop="username" label="用户" />
             <el-table-column prop="requested_model" label="请求模型" min-width="140" />
             <el-table-column prop="model" label="实际模型" min-width="150" />
-            <el-table-column label="模型选择原因" min-width="190">
-              <template #default="{ row }">
-                <template v-if="row.route_reason === 'vision_fallback'">
-                  <el-tag type="warning">含图片，自动切换</el-tag>
-                  <div>原模型：{{ row.original_model }}</div>
-                </template>
-                <span v-else-if="row.route_reason === 'explicit'">客户端指定</span>
-                <span v-else-if="row.route_reason === 'preference'">工作台 / Key 偏好或默认</span>
-                <span v-else>历史记录未采集</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="provider" label="Provider" />
             <el-table-column label="输入 / 输出" min-width="150">
               <template #default="{ row }">
                 {{ formatTokens(row.input_tokens) }} / {{ formatTokens(row.output_tokens) }}
