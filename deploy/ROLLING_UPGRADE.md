@@ -50,6 +50,10 @@ accepted requests expose their actual model and routing reason.
    directory** used by the primary, e.g. `/opt/tokenpool/backend/data/usage-runtime`.
    Never put it under service-private `/tmp` (`PrivateTmp=true`) or a release
    directory. OS lock files must not be removed while instances may be alive.
+   Systemd `EnvironmentFile` overrides `Environment`/`--setenv`: use an
+   `env KEY=value ... python ...` command for the candidate, or append a final
+   temporary EnvironmentFile for primary startup. Verify only the non-secret
+   startup switches in the live process environment before continuing.
 2. Check readiness, authentication, expected routes and one small authorized
    streaming smoke; verify DONE, usage and final audit status, not only HTTP 200.
 3. Save nginx config, update all backend proxy locations from 8000 to 8001,
