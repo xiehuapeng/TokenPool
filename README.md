@@ -5,7 +5,7 @@
 Provider 路由、SSE 转发、Token 统计和调用审计。
 
 当前版本状态：MVP 已完成加固并运行在 Ubuntu 24.04 生产服务器。本文档最后
-核对日期为 2026-09-09。
+核对日期为 2026-09-22。历史发布章节保留当时事实，当前规则以本节为准。
 
 ## 当前能力
 
@@ -21,7 +21,7 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
   返回 HTTP 400 `vision_not_supported`，包括历史消息仍带图片的情况。
   调用审计记录原模型、实际模型和选择原因，响应头提供 `X-Original-Model`、
   `X-Actual-Model`、`X-Route-Reason`（`explicit` / `preference` / `vision_fallback`）。当前
-  9 个模型带视觉标记（`deepseek-flash`、`deepseek-v4-flash-vision-exp`、
+  10 个模型带视觉标记（`deepseek-flash`、`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`、
   `glm-5.3-flash`、`qwen3.8-max`、`qwen3.8-flash`、`qwen3.7-plus`、`kimi-k3`、
   `kimi-k2.7-code`、`kimi-k2.7-code-highspeed`）
 - 邀请码注册、账号密码登录、随机 API Key 生成与吊销
@@ -44,10 +44,9 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
 | Provider | 模型 | 用途 | 图片识别 |
 |---|---|---|---|
 | DeepSeek | `deepseek-flash` | 官方推荐模型名（V4.1-Flash）：日常问答、简单任务与截图分析 | ✓ |
-| DeepSeek | `deepseek-v4-flash` | 日常问答与简单任务（旧名，上游仍映射到 V4.1-Flash） | |
+| DeepSeek | `deepseek-v4-flash` | 兼容旧名，由 V4.1-Flash 承接 | ✓ |
 | DeepSeek | `deepseek-v4-pro` | 复杂任务与深度推理 | |
-| DeepSeek | `deepseek-v4-flash-vision-exp` | 实验性视觉理解（价格同 flash，图片折算为输入 Token 计费） | ✓ |
-| 智谱 GLM | `glm-4.5-air` | 通用 Coding 任务 | |
+| DeepSeek | `deepseek-v4-flash-vision-exp` | 兼容旧名，由 V4.1-Flash 承接 | ✓ |
 | 智谱 GLM | `glm-5.3-flash` | 轻量快速任务 | ✓ |
 | 智谱 GLM | `glm-5.3` | 复杂任务 | |
 | Kimi | `kimi-k3` | 复杂工程与深度推理 | ✓ |
@@ -56,7 +55,29 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
 | 阿里云 Qwen | `qwen3.8-max` | 复杂任务与深度分析 | ✓ |
 | 阿里云 Qwen | `qwen3.8-flash` | 轻量快速任务 | ✓ |
 | 阿里云 Qwen | `qwen3.7-plus` | 日常轻量任务 | ✓ |
-| 智谱 GLM | 其余 glm 系列（`glm-4.5`～`glm-5.2`） | 上游同步入库，默认关闭，管理员按需开放 | |
+| 智谱 GLM | 其余 glm 系列（含 `glm-4.5-air`） | 停用；须重新核价并测试后才能开放 | |
+
+### 2026-09-22 计费与兼容规则
+
+- Qwen Plus 的256K分档按256,000 tokens计算，不是262,144。
+- DeepSeek峰谷使用北京时间，周一至周五9–12/14–18且排除国务院公布假期；
+  周末补班仍按非高峰。当前已核验2026年日历，跨年未核验会标为估算，须每年更新
+  `billing_calendar.py`（官方来源链接保留在代码中）。
+- Kimi缓存读/写/普通输入互斥；5分钟写入20元、1小时40元/百万tokens，
+  替代写入部分的普通输入费用，不重复叠加。上游未报告锁定TTL时按请求TTL估算并标注。
+- Qwen显式缓存单独计费。Max创建15、命中1元；Flash专页创建1.25、命中0.1元，
+  但与通用文档比例有冲突，暂标估算。Plus显式缓存按活动价推导亦标估算，待账单确认。
+  价格快照保留分类tokens、采用单价及估算原因，缺失写入用量不宣称精确费用。
+- 页面价格是API刊例成本估算，不是供应商账单；GLM Coding端点的订阅积分成本另计。
+- 两个DeepSeek旧名按官方兼容别名判断可用；视觉回退优先正式模型名，显式选择不改模型。
+- 新增nullable `model_pricings.cache_pricing`，无历史账单重算。生产升级需要显式运行
+  `python -m scripts.apply_pricing_20260922 --apply`，默认仅预览，冲突时整批中止。
+
+依据：[DeepSeek](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)、
+[Kimi缓存](https://platform.kimi.com/docs/guide/use-context-caching-feature-of-kimi-api)、
+[Qwen价格](https://help.aliyun.com/zh/model-studio/model-pricing)、
+[Max](https://help.aliyun.com/zh/model-studio/qwen3-8-max)、
+[Flash](https://help.aliyun.com/zh/model-studio/qwen3-8-flash)。
 
 ## 本地启动
 

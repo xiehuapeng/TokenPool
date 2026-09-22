@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, TimestampMixin
@@ -31,6 +31,7 @@ class ModelPricing(TimestampMixin, Base):
     high_input_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     high_cached_input_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
     high_output_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    cache_pricing: Mapped[dict | None] = mapped_column(JSON)
 
     currency: Mapped[str] = mapped_column(String(8), default="CNY")
     effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

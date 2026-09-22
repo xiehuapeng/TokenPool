@@ -76,7 +76,7 @@ async def test_seed_pricing_values_match_official_prices(client):
     assert qwen_pricing.input_price == Decimal("1.6")
     assert qwen_pricing.cached_input_price == Decimal("0.32")
     assert qwen_pricing.output_price == Decimal("6.4")
-    assert qwen_pricing.tier_threshold_tokens == 262144
+    assert qwen_pricing.tier_threshold_tokens == 256000
     assert qwen_pricing.high_input_price == Decimal("4.8")
     assert qwen_pricing.high_cached_input_price == Decimal("0.96")
     assert qwen_pricing.high_output_price == Decimal("19.2")

@@ -16,6 +16,7 @@ from app.schemas.openai import (
     OpenAIModelList,
 )
 from app.services.auth_service import ApiPrincipal
+from app.services.cache_billing import request_cache_context
 from app.services.model_router import (
     GATEWAY_MODEL_ID,
     ensure_reasoning_content,
@@ -107,6 +108,7 @@ async def chat_completions(
         stream=body.stream,
         original_model=original_model,
         route_reason=route_reason,
+        cache_context=request_cache_context(route.provider_config.code, payload),
     )
     route_headers = {
         "X-Request-ID": request_id,

@@ -292,7 +292,7 @@ async def test_vision_reroute_and_friendly_error(client):
         api_headers = {"Authorization": f"Bearer {key['key']}"}
 
         image_payload = {
-            "model": "deepseek-v4-flash",
+            "model": "deepseek-v4-pro",
             "messages": [
                 {
                     "role": "user",
@@ -318,6 +318,7 @@ async def test_vision_reroute_and_friendly_error(client):
         assert glm_fake.upstream_models == []
         assert qwen_fake.upstream_models == []
 
+        await client.put("/api/me/model-preference", headers=user_headers, json={"model": "deepseek-v4-pro"})
         virtual_image = {**image_payload, "model": "team-coding"}
         virtual_rerouted = await client.post(
             "/v1/chat/completions", headers=api_headers, json=virtual_image

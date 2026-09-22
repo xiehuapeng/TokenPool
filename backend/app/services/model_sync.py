@@ -11,6 +11,7 @@ from app.models import ModelConfig, ProviderConfig
 from app.providers.base import ProviderModel
 from app.providers.registry import provider_registry
 from app.utils.time import utc_now
+from app.services.model_aliases import OFFICIAL_ALIASES
 
 
 logger = logging.getLogger(__name__)
@@ -57,8 +58,12 @@ async def record_provider_model_discovery(
 
     unavailable = 0
     for model in provider_models:
-        is_available = model.upstream_model in available_ids
+        canonical = OFFICIAL_ALIASES.get(provider.code, {}).get(model.upstream_model)
+        is_available = model.upstream_model in available_ids or canonical in available_ids
         capabilities = dict(model.capabilities or {})
+        if canonical:
+            capabilities["official_alias_of"] = canonical
+            capabilities["official_listed"] = model.upstream_model in available_ids
         capabilities["official_available"] = is_available
         capabilities["official_synced_at"] = synced_at
         model.capabilities = capabilities

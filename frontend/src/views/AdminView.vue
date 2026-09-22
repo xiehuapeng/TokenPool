@@ -753,7 +753,7 @@ function formatPrice(value: unknown) {
 
 function costSourceLabel(source: unknown) {
   if (source === "realtime") return "请求完成时实时计价";
-  if (source === "estimated") return "回填估算";
+  if (source === "estimated") return "估算费用（详见计价明细）";
   if (source === "bill_allocated") return "厂商账单分摊";
   return String(source || "—");
 }
@@ -768,6 +768,14 @@ function formatPriceDetail(detail: any) {
   ];
   if (detail.tier === "high") parts.push("超长上下文档");
   if (detail.peak) parts.push("峰时");
+  if (detail.cache) {
+    parts.push(`缓存写入 ${detail.cache.write_tokens} tokens`);
+    if (detail.cache.write_price != null) parts.push(`写入单价 ${detail.cache.write_price}`);
+    if (detail.cache.read_price != null) parts.push(`显式命中单价 ${detail.cache.read_price}`);
+    if (detail.cache.requested_ttl) parts.push(`请求TTL ${detail.cache.requested_ttl}`);
+    if (detail.cache.estimate_reasons?.length) parts.push("缓存TTL、用量或活动价格未获完整账单验证");
+  }
+  if (detail.holiday_calendar_verified === false) parts.push("该年份节假日日历未核验");
   if (detail.estimated) {
     let label = "估算值";
     if (detail.cache_hit_rate != null) {

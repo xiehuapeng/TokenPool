@@ -4,6 +4,8 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.models import ModelPricing
+from app.services.billing_calendar import calendar_known, is_holiday
+from app.services.cache_billing import cache_adjustment
 
 MILLION = Decimal(1_000_000)
 
@@ -68,7 +70,7 @@ def is_peak_time(request_time_utc: datetime) -> bool:
     if request_time_utc.tzinfo is None:
         request_time_utc = request_time_utc.replace(tzinfo=timezone.utc)
     beijing = request_time_utc.astimezone(BEIJING_TZ)
-    if beijing.weekday() >= 5:
+    if beijing.weekday() >= 5 or is_holiday(beijing.date()):
         return False
     hour = beijing.hour
     return any(start <= hour < end for start, end in DEEPSEEK_PEAK_HOUR_RANGES)
@@ -121,6 +123,8 @@ def compute_cost(
     cached_tokens: int | None,
     output_tokens: int | None,
     request_time_utc: datetime,
+    usage: dict | None = None,
+    cache_context: dict | None = None,
 ) -> tuple[Decimal, dict] | None:
     if input_tokens is None and output_tokens is None:
         return None
@@ -149,6 +153,21 @@ def compute_cost(
         "peak": peak,
         "tier": tier,
     }
+    adjustment, cache_detail = cache_adjustment(
+        pricing.cache_pricing, usage, cache_context, input_tokens, cached_tokens,
+        input_price, cached_input_price, tier,
+    )
+    cost += adjustment / MILLION
+    if cache_detail:
+        detail["cache"] = cache_detail
+        if cache_detail.get("estimate_reasons"):
+            detail["estimated"] = True
+    if pricing.peak_input_price is not None:
+        aware = request_time_utc if request_time_utc.tzinfo else request_time_utc.replace(tzinfo=timezone.utc)
+        known = calendar_known(aware.astimezone(BEIJING_TZ).date())
+        detail["holiday_calendar_verified"] = known
+        if not known:
+            detail["estimated"] = True
     return cost, detail
 
 

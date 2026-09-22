@@ -29,6 +29,14 @@ live database as part of an application rollback.
 
 ## Cutover
 
+Schema `20260922_0011` only adds nullable `model_pricings.cache_pricing`.
+Keep it on application rollback. After migration, preview and explicitly apply
+`python -m scripts.apply_pricing_20260922 --apply` from the staged release.
+Save its before/after JSON in the private backup. It aborts on custom pricing
+conflicts and never changes historical costs, permissions or enabled flags.
+Run this small catalog transaction only after local/candidate tests, as old
+workers can read the shared catalog until fully drained.
+
 For schema `20260915_0009`, the same additive-migration rules apply: nullable
 `original_model` and `route_reason` fields, one-second PostgreSQL lock wait,
 no historical backfill or cost changes. Old records display as uncollected.

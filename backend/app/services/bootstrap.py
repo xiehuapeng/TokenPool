@@ -7,10 +7,12 @@ from app.database.session import SessionLocal
 from app.models import ModelConfig, ModelPricing, ProviderConfig, User, UserModelPermission
 from app.utils.security import hash_password
 from app.utils.time import utc_now
+from app.services.model_aliases import OFFICIAL_ALIASES
 
 
 VISION_CAPABLE_MODELS = {
     "deepseek-flash",
+    "deepseek-v4-flash",
     "deepseek-v4-flash-vision-exp",
     "glm-5.3-flash",
     "qwen3.8-max",
@@ -130,6 +132,7 @@ SEED_PRICINGS: dict[str, dict] = {
         "note": "智谱官网价；输出＜0.2K时输出价为2元档，未细分",
     },
     "kimi-k3": {
+        "cache_pricing": {"kind": "kimi", "write_price": "20", "write_1h_price": "40"},
         "input_price": Decimal("20"),
         "cached_input_price": Decimal("2"),
         "output_price": Decimal("100"),
@@ -148,22 +151,25 @@ SEED_PRICINGS: dict[str, dict] = {
         "note": "Moonshot官网价（国内站），不分档",
     },
     "qwen3.8-max": {
+        "cache_pricing": {"kind": "qwen", "write_price": "15", "read_price": "1"},
         "input_price": Decimal("12"),
         "cached_input_price": Decimal("1.5"),
         "output_price": Decimal("36"),
         "note": "阿里云百炼官网价（北京地域），不分档",
     },
     "qwen3.8-flash": {
+        "cache_pricing": {"kind": "qwen", "write_price": "1.25", "read_price": "0.1", "estimated": True},
         "input_price": Decimal("0.8"),
         "cached_input_price": Decimal("0.1"),
         "output_price": Decimal("2.7"),
         "note": "阿里云百炼官网价（北京地域），不分档",
     },
     "qwen3.7-plus": {
+        "cache_pricing": {"kind": "qwen", "write_price": "2", "read_price": "0.16", "high_write_price": "6", "high_read_price": "0.48", "estimated": True},
         "input_price": Decimal("1.6"),
         "cached_input_price": Decimal("0.32"),
         "output_price": Decimal("6.4"),
-        "tier_threshold_tokens": 262144,
+        "tier_threshold_tokens": 256000,
         "high_input_price": Decimal("4.8"),
         "high_cached_input_price": Decimal("0.96"),
         "high_output_price": Decimal("19.2"),
@@ -215,6 +221,8 @@ async def seed_initial_data() -> None:
                 "json": True,
                 "thinking": True,
                 **({"vision": True} if model_id in VISION_CAPABLE_MODELS else {}),
+                **({"official_alias_of": OFFICIAL_ALIASES["deepseek"][model_id]}
+                   if model_id in OFFICIAL_ALIASES["deepseek"] else {}),
             }
             model = await session.scalar(
                 select(ModelConfig).where(ModelConfig.public_model == model_id)

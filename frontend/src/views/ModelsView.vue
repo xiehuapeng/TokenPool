@@ -21,7 +21,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
 
 function capabilityNames(capabilities: Record<string, unknown> | null) {
   return Object.entries(capabilities || {})
-    .filter(([name, value]) => !name.startsWith("official_") && value === true)
+    .filter(([name, value]) => name in CAPABILITY_LABELS && value === true)
     .map(([name]) => CAPABILITY_LABELS[name] || name);
 }
 
@@ -56,7 +56,7 @@ function hasTierPricing(pricing: any) {
 }
 
 function tierThresholdText(tokens: number) {
-  return tokens % 1024 === 0 ? `${tokens / 1024}K` : String(tokens);
+  return tokens % 1000 === 0 ? `${tokens / 1000}K` : String(tokens);
 }
 
 function tierLine(pricing: any) {
@@ -67,25 +67,12 @@ function tierLine(pricing: any) {
   )}`;
 }
 
-function isPeakNow() {
-  const now = new Date();
-  const beijing = new Date(
-    now.getTime() + (now.getTimezoneOffset() + 480) * 60000
-  );
-  const weekday = beijing.getDay() >= 1 && beijing.getDay() <= 5;
-  const hour = beijing.getHours();
-  const inSession = (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18);
-  return weekday && inSession;
-}
-
-const peakNow = ref(isPeakNow());
-
 function priceLines(pricing: any) {
   const line = `输入 ${formatPrice(pricing.input_price)} / 缓存 ${formatPrice(
     pricing.cached_input_price
   )} / 输出 ${formatPrice(pricing.output_price)}`;
   const lines = hasPeakPricing(pricing)
-    ? peakNow.value
+    ? pricing.peak_now
       ? [
           `高峰：输入 ${formatPrice(
             pricing.peak_input_price
@@ -97,6 +84,19 @@ function priceLines(pricing: any) {
     : [line];
   if (hasTierPricing(pricing)) {
     lines.push(tierLine(pricing));
+  }
+  if (pricing.cache_pricing) {
+    const cache = pricing.cache_pricing;
+    lines.push(cache.kind === "kimi"
+      ? `缓存写入：5分钟 ${cache.write_price} / 1小时 ${cache.write_1h_price}（替代该部分普通输入费用）`
+      : `显式缓存：创建 ${cache.write_price} / 命中 ${cache.read_price}`);
+    if (cache.high_write_price != null) {
+      lines.push(`超长显式缓存：创建 ${cache.high_write_price} / 命中 ${cache.high_read_price}`);
+    }
+    if (cache.estimated) lines.push("特殊缓存价格待账单确认，费用标为估算");
+  }
+  if (hasPeakPricing(pricing) && !pricing.holiday_calendar_verified) {
+    lines.push("当前年份节假日日历待核验，费用标为估算");
   }
   return lines;
 }
@@ -234,15 +234,15 @@ onMounted(refreshModels);
                   </el-tooltip>
                   <el-tooltip
                     v-if="hasPeakPricing(row.pricing)"
-                    content="高峰时段：工作日 9:00-12:00、14:00-18:00（北京时间），其余时间为空闲价"
+                    content="高峰时段：周一至周五 9:00-12:00、14:00-18:00（北京时间），排除官方节假日；显示为页面加载时状态，实际按请求时间计价"
                     placement="top"
                   >
                     <el-tag
                       size="small"
-                      :type="peakNow ? 'warning' : 'info'"
+                      :type="row.pricing.peak_now ? 'warning' : 'info'"
                       effect="plain"
                     >
-                      {{ peakNow ? "高峰价生效中" : "空闲价生效中" }}
+                      {{ row.pricing.peak_now ? "高峰价生效中" : "空闲价生效中" }}
                     </el-tag>
                   </el-tooltip>
                   <el-tooltip

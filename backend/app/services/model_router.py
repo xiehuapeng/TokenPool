@@ -241,8 +241,15 @@ async def find_vision_fallback(
     session: AsyncSession, *, user_id: int, exclude_model_id: int
 ) -> ModelRoute | None:
     permitted = await list_permitted_models(session, user_id=user_id)
+    by_name = {model.public_model: model for model in permitted}
     for model in permitted:
         if model.id != exclude_model_id and model_supports_vision(model):
+            # Prefer this alias's canonical name without reordering providers or
+            # bypassing permissions when that canonical model is unavailable.
+            canonical = by_name.get((model.capabilities or {}).get("official_alias_of"))
+            if (canonical is not None and canonical.provider_id == model.provider_id
+                    and canonical.id != exclude_model_id and model_supports_vision(canonical)):
+                model = canonical
             return await resolve_model(
                 session,
                 user_id=user_id,

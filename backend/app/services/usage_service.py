@@ -30,6 +30,7 @@ async def create_usage_log(
     stream: bool,
     original_model: str | None = None,
     route_reason: str | None = None,
+    cache_context: dict | None = None,
 ) -> datetime:
     started = utc_now()
     async with SessionLocal() as session:
@@ -49,6 +50,7 @@ async def create_usage_log(
                 request_time=started,
                 status="pending",
                 usage_source="missing",
+                price_detail={"cache_request": cache_context} if cache_context else None,
             )
         )
         await session.commit()
@@ -92,17 +94,25 @@ async def finish_usage_log(
         if model_config_id is not None:
             pricing = await get_pricing_by_model_config_id(session, model_config_id)
             if pricing is not None:
+                initial_detail = await session.scalar(
+                    select(UsageLog.price_detail).where(UsageLog.request_id == request_id)
+                )
+                cache_context = (initial_detail or {}).get("cache_request")
                 computed = compute_cost(
                     pricing,
                     input_tokens=tokens.get("prompt_tokens"),
                     cached_tokens=tokens.get("cached_input_tokens"),
                     output_tokens=tokens.get("completion_tokens"),
                     request_time_utc=started,
+                    usage=usage,
+                    cache_context=cache_context,
                 )
                 if computed is not None:
                     cost, price_detail = computed
                     values["cost"] = cost
-                    values["cost_source"] = "realtime"
+                    if cache_context:
+                        price_detail["cache_request"] = cache_context
+                    values["cost_source"] = "estimated" if price_detail.get("estimated") else "realtime"
                     values["price_detail"] = price_detail
         await session.execute(
             update(UsageLog)

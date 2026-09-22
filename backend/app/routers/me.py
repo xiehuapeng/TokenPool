@@ -276,9 +276,9 @@ MODEL_DESCRIPTIONS = {
     "glm-4.5-air": "GLM 4.5 Air 轻量版，速度快、成本最低，适合简单任务与批量处理。",
     "deepseek-v4-pro": "复杂编程、架构设计、算法、技术推理",
     "deepseek-flash": "官方推荐模型名（V4.1-Flash）：日常编程、Bug 修复、脚本、截图分析",
-    "deepseek-v4-flash": "日常编程、Bug 修复、脚本、技术问答",
+    "deepseek-v4-flash": "兼容旧名，实际由 deepseek-flash（V4.1-Flash）提供服务，支持图片理解",
     "deepseek-v4-flash-vision-exp": (
-        "实验性视觉理解：截图分析、界面排查、图表解读；价格与 flash 相同"
+        "兼容旧名，实际由 deepseek-flash（V4.1-Flash）提供服务，价格与能力相同"
     ),
     "kimi-k3": "长文档、大型代码库、深度研究、长程 Agent",
     "kimi-k2.7-code": "仓库级编程、多文件修改、重构、调试",
@@ -292,7 +292,7 @@ RECOMMENDED_MODELS = {"glm-5.3-flash"}
 
 MODEL_INPUT_CONTEXT: dict[str, dict] = {
     "deepseek-flash": {"modalities": ["图片", "文本"], "context_window": "1M"},
-    "deepseek-v4-flash": {"modalities": ["文本"], "context_window": "1M"},
+    "deepseek-v4-flash": {"modalities": ["图片", "文本"], "context_window": "1M"},
     "deepseek-v4-pro": {"modalities": ["文本"], "context_window": "1M"},
     "deepseek-v4-flash-vision-exp": {
         "modalities": ["图片", "文本"],
@@ -310,6 +310,9 @@ MODEL_INPUT_CONTEXT: dict[str, dict] = {
 
 
 def _pricing_view(pricing: ModelPricing | None) -> dict | None:
+    from app.services.pricing_service import is_peak_time
+    from app.services.billing_calendar import calendar_known
+    from app.services.pricing_service import BEIJING_TZ
     if pricing is None or not pricing.enabled:
         return None
 
@@ -318,6 +321,9 @@ def _pricing_view(pricing: ModelPricing | None) -> dict | None:
 
     return {
         "input_price": _num(pricing.input_price),
+        "peak_now": is_peak_time(utc_now()),
+        "holiday_calendar_verified": calendar_known(utc_now().astimezone(BEIJING_TZ).date()),
+        "cache_pricing": pricing.cache_pricing,
         "cached_input_price": _num(pricing.cached_input_price),
         "output_price": _num(pricing.output_price),
         "peak_input_price": _num(pricing.peak_input_price),

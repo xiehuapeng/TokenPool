@@ -17,12 +17,14 @@ async def routing_client(client, monkeypatch):
     # Bootstrap tests intentionally preserve administrator-disabled models.
     # Establish this fixture's candidate and restore that shared state afterwards.
     async with SessionLocal() as session:
-        vision = await session.scalar(select(ModelConfig).where(
-            ModelConfig.public_model == "deepseek-v4-flash-vision-exp"))
-        previous = (vision.enabled, vision.default_allowed, vision.sort_order)
-        vision.enabled = True
-        vision.default_allowed = True
-        vision.sort_order = -1000
+        candidates = (await session.scalars(select(ModelConfig).where(
+            ModelConfig.public_model.in_(["deepseek-flash", "deepseek-v4-flash-vision-exp"])))).all()
+        previous = {model.id: (model.enabled, model.default_allowed, model.sort_order)
+                    for model in candidates}
+        for model in candidates:
+            model.enabled = True
+            model.default_allowed = True
+            model.sort_order = -1000 if model.public_model == "deepseek-flash" else -999
         await session.commit()
     token = await login(client, "admin", "admin-password")
     admin_headers = {"Authorization": f"Bearer {token}"}
@@ -36,15 +38,15 @@ async def routing_client(client, monkeypatch):
     assert key.status_code == 201
     # A conflicting Key preference must never override an explicit model.
     preference = await client.patch(f"/api/me/api-keys/{key.json()['id']}/preferred-model",
-                                    headers=user_headers, json={"model": "deepseek-v4-flash"})
+                                    headers=user_headers, json={"model": "deepseek-v4-pro"})
     assert preference.status_code == 200
     try:
         yield client, {"Authorization": f"Bearer {key.json()['key']}"}, admin_headers, fake
     finally:
         async with SessionLocal() as session:
-            vision = await session.scalar(select(ModelConfig).where(
-                ModelConfig.public_model == "deepseek-v4-flash-vision-exp"))
-            vision.enabled, vision.default_allowed, vision.sort_order = previous
+            for model_id, state in previous.items():
+                model = await session.get(ModelConfig, model_id)
+                model.enabled, model.default_allowed, model.sort_order = state
             await session.commit()
 
 
@@ -65,7 +67,7 @@ def image_messages(kind, historical):
 async def test_explicit_nonvision_rejects_before_any_upstream_call(routing_client, stream, historical, kind):
     client, headers, _, fake = routing_client
     response = await client.post("/v1/chat/completions", headers=headers, json={
-        "model": "deepseek-v4-flash", "stream": stream,
+        "model": "deepseek-v4-pro", "stream": stream,
         "messages": image_messages(kind, historical),
     })
     assert response.status_code == 400
@@ -82,9 +84,10 @@ async def test_explicit_nonvision_rejects_before_any_upstream_call(routing_clien
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("model,with_image,expected,reason", [
-    ("team-coding", True, "deepseek-v4-flash-vision-exp", "vision_fallback"),
-    ("team-coding", False, "deepseek-v4-flash", "preference"),
+    ("team-coding", True, "deepseek-flash", "vision_fallback"),
+    ("team-coding", False, "deepseek-v4-pro", "preference"),
     ("deepseek-v4-flash", False, "deepseek-v4-flash", "explicit"),
+    ("deepseek-v4-flash", True, "deepseek-v4-flash", "explicit"),
     ("deepseek-v4-flash-vision-exp", True, "deepseek-v4-flash-vision-exp", "explicit"),
 ])
 async def test_model_selection_headers_and_persistent_audit(routing_client, stream, model, with_image, expected, reason):
@@ -95,7 +98,7 @@ async def test_model_selection_headers_and_persistent_audit(routing_client, stre
     })
     assert response.status_code == 200, response.text
     assert fake.upstream_models == [expected]
-    original = "deepseek-v4-flash" if model == "team-coding" else model
+    original = "deepseek-v4-pro" if model == "team-coding" else model
     assert response.headers["x-original-model"] == original
     assert response.headers["x-actual-model"] == expected
     assert response.headers["x-route-reason"] == reason

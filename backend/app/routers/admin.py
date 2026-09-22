@@ -445,6 +445,7 @@ def _pricing_payload(pricing: ModelPricing | None) -> dict | None:
         "high_cached_input_price": _num(pricing.high_cached_input_price),
         "high_output_price": _num(pricing.high_output_price),
         "currency": pricing.currency,
+        "cache_pricing": pricing.cache_pricing,
         "enabled": pricing.enabled,
         "note": pricing.note,
     }

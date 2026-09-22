@@ -149,7 +149,8 @@ async def test_deepseek_flash_precedes_other_vision_models_for_fallback(client):
 
     ordered = [name for name, _ in rows]
     assert ordered[0] == "deepseek-v4-flash", "默认模型必须保持第一位"
-    vision_order = [name for name in ordered if vision_flags.get(name)]
+    from app.services.model_aliases import OFFICIAL_ALIASES
+    vision_order = [name for name in ordered if vision_flags.get(name) and name not in OFFICIAL_ALIASES["deepseek"]]
     assert vision_order[0] == "deepseek-flash", (
         f"视觉回退首选应为 deepseek-flash，实际为 {vision_order[:3]}"
     )
