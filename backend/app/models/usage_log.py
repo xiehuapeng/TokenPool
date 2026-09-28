@@ -15,6 +15,7 @@ class UsageLog(Base):
         Index("ix_usage_model_time", "model", "request_time"),
         Index("ix_usage_provider_time", "provider", "request_time"),
         Index("ix_usage_status_time", "status", "request_time"),
+        Index("ix_usage_billing_status_time", "billing_status", "request_time"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -43,6 +44,9 @@ class UsageLog(Base):
     response_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     latency_ms: Mapped[int | None] = mapped_column()
     status: Mapped[str] = mapped_column(String(30), default="pending")
+    upstream_status: Mapped[str | None] = mapped_column(String(30))
+    billing_status: Mapped[str | None] = mapped_column(String(30))
+    stream_observation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     http_status: Mapped[int | None] = mapped_column()
     error_code: Mapped[str | None] = mapped_column(String(80))
     error_message: Mapped[str | None] = mapped_column(Text)

@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import suppress
 import json
 import logging
 import time
@@ -10,6 +11,7 @@ from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
 
 from app.dependencies import DbSession, api_principal
+from app.providers.base import StreamEvent
 from app.schemas.openai import (
     ChatCompletionRequest,
     OpenAIModel,
@@ -30,6 +32,7 @@ from app.services.model_router import (
 from app.services.usage_service import (
     create_usage_log,
     finish_usage_log,
+    mark_upstream_opened,
 )
 from app.utils.time import utc_now
 from app.utils.async_cleanup import run_cancellation_safe_cleanup
@@ -39,6 +42,42 @@ from app.utils.redaction import redact_secrets
 
 router = APIRouter(prefix="/v1", tags=["openai"])
 logger = logging.getLogger("tokenpool.stream")
+STREAM_HEARTBEAT_SECONDS = 15.0
+
+
+async def events_with_heartbeat(
+    events: AsyncIterator[StreamEvent], interval_seconds: float = STREAM_HEARTBEAT_SECONDS
+) -> AsyncIterator[StreamEvent]:
+    """Keep an established SSE connection active while the provider is silent.
+
+    The pending upstream read is not cancelled on each heartbeat. This does
+    not cover the pre-header wait in open_chat_stream.
+    """
+    iterator = events.__aiter__()
+    pending: asyncio.Task[StreamEvent] | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.create_task(anext(iterator))
+            done, _ = await asyncio.wait({pending}, timeout=interval_seconds)
+            if not done:
+                yield StreamEvent(comment=": keep-alive")
+                continue
+            try:
+                event = pending.result()
+            except StopAsyncIteration:
+                pending = None
+                return
+            pending = None
+            yield event
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            with suppress(asyncio.CancelledError):
+                await pending
+        close = getattr(iterator, "aclose", None)
+        if close is not None:
+            await close()
 
 
 @router.get("/models", response_model=OpenAIModelList)
@@ -164,6 +203,7 @@ async def chat_completions(
                 status="client_disconnected",
                 http_status=None,
                 model_config_id=route.model.id,
+                stream_observation={"phase": "opening", "usage_seen": False, "done_seen": False},
             )
         )
         raise
@@ -177,11 +217,43 @@ async def chat_completions(
                 error_code=exc.code,
                 error_message=exc.message,
                 model_config_id=route.model.id,
+                stream_observation={"phase": "opening", "usage_seen": False, "done_seen": False},
             )
         )
         exc.headers["X-Request-ID"] = request_id
         raise
     upstream_open_ms = round((time.monotonic() - upstream_open_started) * 1000)
+    try:
+        await mark_upstream_opened(
+            request_id,
+            http_status=upstream.http_status,
+            upstream_request_id=upstream.upstream_request_id,
+        )
+    except (asyncio.CancelledError, Exception) as exc:
+        client_cancelled = isinstance(exc, asyncio.CancelledError)
+
+        async def cleanup_opened_stream() -> None:
+            try:
+                await upstream.close()
+            finally:
+                await finish_usage_log(
+                    request_id,
+                    started,
+                    status="client_disconnected" if client_cancelled else "failed",
+                    http_status=upstream.http_status,
+                    error_code=None if client_cancelled else "upstream_open_audit_failed",
+                    upstream_request_id=upstream.upstream_request_id,
+                    model_config_id=route.model.id,
+                    stream_observation={
+                        "phase": "opening",
+                        "upstream_open_ms": upstream_open_ms,
+                        "usage_seen": False,
+                        "done_seen": False,
+                    },
+                )
+
+        await run_cancellation_safe_cleanup(cleanup_opened_stream())
+        raise
 
     async def event_stream() -> AsyncIterator[bytes]:
         usage: dict | None = None
@@ -199,8 +271,10 @@ async def chat_completions(
         data_event_count = 0
         content_chunk_count = 0
         reasoning_chunk_count = 0
+        finish_reason_seen = False
+        provider_response_id: str | None = None
         try:
-            async for event in upstream.events():
+            async for event in events_with_heartbeat(upstream.events()):
                 event_at = time.monotonic()
                 event_count += 1
                 elapsed_ms = round((event_at - upstream_open_started) * 1000)
@@ -222,6 +296,13 @@ async def chat_completions(
                 if event.data is None:
                     continue
                 data_event_count += 1
+                event_response_id = event.data.get("id")
+                if (
+                    provider_response_id is None
+                    and isinstance(event_response_id, str)
+                    and 0 < len(event_response_id) <= 160
+                ):
+                    provider_response_id = event_response_id
                 if event.data.get("error") is not None:
                     upstream_error = event.data["error"]
                     message = (
@@ -245,6 +326,8 @@ async def chat_completions(
                     for choice in choices:
                         if not isinstance(choice, dict):
                             continue
+                        if choice.get("finish_reason") is not None:
+                            finish_reason_seen = True
                         delta = choice.get("delta")
                         if not isinstance(delta, dict):
                             continue
@@ -318,6 +401,23 @@ async def chat_completions(
                             error_message=str(failure) if failure else None,
                             upstream_request_id=upstream.upstream_request_id,
                             model_config_id=route.model.id,
+                            stream_observation={
+                                "phase": "streaming",
+                                "upstream_open_ms": upstream_open_ms,
+                                "first_event_ms": first_event_ms,
+                                "first_choices_ms": first_choices_ms,
+                                "first_reasoning_ms": first_reasoning_ms,
+                                "first_content_ms": first_content_ms,
+                                "max_event_gap_ms": max_event_gap_ms,
+                                "event_count": event_count,
+                                "data_event_count": data_event_count,
+                                "reasoning_chunks": reasoning_chunk_count,
+                                "content_chunks": content_chunk_count,
+                                "finish_reason_seen": finish_reason_seen,
+                                "usage_seen": usage is not None,
+                                "done_seen": completed,
+                                "provider_response_id": provider_response_id,
+                            },
                         )
                     finally:
                         # Alembic configures logging during startup and disables

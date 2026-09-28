@@ -29,6 +29,20 @@ live database as part of an application rollback.
 
 ## Cutover
 
+Schema `20260923_0012` adds nullable request lifecycle/stream-observation fields
+and an empty append-only `billing_adjustments` table. Existing request costs,
+usage, and statuses are not rewritten. Keep these additive objects on application
+rollback; old workers ignore them. Apply the migration explicitly before the
+candidate starts. The billing-status index has a one-second PostgreSQL lock
+wait, so abort and retry after traffic drains if the migration cannot acquire
+it immediately. New reports add independent adjustment amounts to request
+cost; the table starts empty, so historical totals do not change on deployment.
+
+The 15-second SSE heartbeat starts only after provider response headers have
+been received. Verify a slow post-header stream emits comment frames without
+changing the content, usage frame, DONE marker, or billing. Pre-header waits
+and client-specific total deadlines are intentionally unchanged in this stage.
+
 Schema `20260922_0011` only adds nullable `model_pricings.cache_pricing`.
 Keep it on application rollback. After migration, preview and explicitly apply
 `python -m scripts.apply_pricing_20260922 --apply` from the staged release.

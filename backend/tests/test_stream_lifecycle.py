@@ -39,6 +39,7 @@ def stream_harness(monkeypatch):
 
     monkeypatch.setattr(router, "finish_usage_log", finish)
     monkeypatch.setattr(router, "create_usage_log", AsyncMock(return_value=utc_now()))
+    monkeypatch.setattr(router, "mark_upstream_opened", AsyncMock())
     monkeypatch.setattr(
         router.logger, "info", lambda template, *args: observations.append(template % args)
     )
@@ -143,6 +144,8 @@ async def test_first_content_ignores_empty_chunks_and_preserves_payloads(
     assert all(chunk["model"] == "team-coding" for chunk in chunks)
     assert terminal[0]["status"] == "success"
     assert terminal[0]["usage"] == usage
+    assert terminal[0]["stream_observation"]["usage_seen"] is True
+    assert terminal[0]["stream_observation"]["done_seen"] is True
     observation = observations[0]
     for expected in ("first_choices_ms=100", "first_reasoning_ms=1000",
                      "first_content_ms=3000", "reasoning_chunks=1", "content_chunks=1"):
@@ -169,6 +172,8 @@ async def test_real_client_cancel_stays_client_disconnected(stream_harness):
         await task
     assert terminal[0]["status"] == "client_disconnected"
     assert terminal[0]["error_code"] is None
+    assert terminal[0]["stream_observation"]["usage_seen"] is False
+    assert terminal[0]["stream_observation"]["done_seen"] is False
     assert stream.closed
 
 
@@ -189,3 +194,51 @@ async def test_open_stream_cancel_finishes_audit(stream_harness):
     with pytest.raises(asyncio.CancelledError):
         await response_for(open_stream=AsyncMock(side_effect=asyncio.CancelledError))
     assert terminal[0]["status"] == "client_disconnected"
+    assert terminal[0]["stream_observation"]["phase"] == "opening"
+
+
+@pytest.mark.asyncio
+async def test_opened_stream_audit_failure_closes_upstream(stream_harness, monkeypatch):
+    response_for, terminal, _ = stream_harness
+    stream = ScriptedStream([])
+    monkeypatch.setattr(
+        router, "mark_upstream_opened", AsyncMock(side_effect=RuntimeError("audit down"))
+    )
+    with pytest.raises(RuntimeError, match="audit down"):
+        await response_for(stream)
+    assert stream.closed
+    assert terminal[0]["status"] == "failed"
+    assert terminal[0]["error_code"] == "upstream_open_audit_failed"
+    assert terminal[0]["upstream_request_id"] == "test-upstream"
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_does_not_cancel_slow_upstream_read(stream_harness, monkeypatch):
+    response_for, terminal, _ = stream_harness
+    monkeypatch.setattr(router, "STREAM_HEARTBEAT_SECONDS", 0.01)
+    # The default argument of the helper is bound at import time. Patch the
+    # wrapper so this test can use a short heartbeat interval.
+    original = router.events_with_heartbeat
+
+    def fast_heartbeats(events):
+        return original(events, interval_seconds=0.01)
+
+    monkeypatch.setattr(router, "events_with_heartbeat", fast_heartbeats)
+
+    class SlowStream(ScriptedStream):
+        async def events(self):
+            await asyncio.sleep(0.04)
+            yield StreamEvent(data={"choices": [{"delta": {"content": "late"}}]})
+            yield StreamEvent(data={"choices": [], "usage": {
+                "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2,
+            }})
+            yield StreamEvent(done=True)
+
+    stream = SlowStream([])
+    body = await consume(await response_for(stream))
+    assert body.count(": keep-alive\n\n") >= 2
+    assert "late" in body
+    assert body.endswith("data: [DONE]\n\n")
+    assert terminal[0]["status"] == "success"
+    assert terminal[0]["stream_observation"]["usage_seen"] is True
+    assert stream.closed

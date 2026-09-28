@@ -49,12 +49,31 @@ async def create_usage_log(
                 stream=stream,
                 request_time=started,
                 status="pending",
+                upstream_status="not_started",
+                billing_status="pending",
                 usage_source="missing",
                 price_detail={"cache_request": cache_context} if cache_context else None,
             )
         )
         await session.commit()
     return started
+
+
+async def mark_upstream_opened(
+    request_id: str, *, http_status: int | None, upstream_request_id: str | None
+) -> None:
+    """Persist provider identity at header arrival, before the SSE lifecycle ends."""
+    async with SessionLocal() as session:
+        await session.execute(
+            update(UsageLog)
+            .where(UsageLog.request_id == request_id, UsageLog.status == "pending")
+            .values(
+                upstream_status="streaming",
+                http_status=http_status,
+                upstream_request_id=upstream_request_id,
+            )
+        )
+        await session.commit()
 
 
 async def finish_usage_log(
@@ -69,6 +88,7 @@ async def finish_usage_log(
     error_message: str | None = None,
     upstream_request_id: str | None = None,
     model_config_id: int | None = None,
+    stream_observation: dict | None = None,
 ) -> None:
     finished = utc_now()
     tokens = normalize_usage(usage)
@@ -76,6 +96,12 @@ async def finish_usage_log(
         "response_time": finished,
         "latency_ms": int((finished - started).total_seconds() * 1000),
         "status": status,
+        "upstream_status": (
+            "completed" if status == "success"
+            else "cancel_requested" if status == "client_disconnected"
+            else "failed"
+        ),
+        "billing_status": "awaiting_bill" if not usage else "usage_unpriced",
         "http_status": http_status,
         "first_token_time": first_token_time,
         "input_tokens": tokens.get("prompt_tokens"),
@@ -89,6 +115,7 @@ async def finish_usage_log(
             redact_secrets(error_message)[:500] if error_message else None
         ),
         "upstream_request_id": upstream_request_id,
+        "stream_observation": stream_observation,
     }
     async with SessionLocal() as session:
         if model_config_id is not None:
@@ -110,6 +137,7 @@ async def finish_usage_log(
                 if computed is not None:
                     cost, price_detail = computed
                     values["cost"] = cost
+                    values["billing_status"] = "usage_priced"
                     if cache_context:
                         price_detail["cache_request"] = cache_context
                     values["cost_source"] = "estimated" if price_detail.get("estimated") else "realtime"
@@ -397,6 +425,8 @@ async def recover_stale_usage_logs(max_age_minutes: int = 5) -> int:
                 0, int((finished - started).total_seconds() * 1000)
             )
             usage_log.status = "interrupted"
+            usage_log.upstream_status = "unknown"
+            usage_log.billing_status = "awaiting_bill"
             usage_log.error_code = "stale_pending_recovered"
             usage_log.error_message = (
                 "Request ended without a terminal status and was recovered at startup"
@@ -441,6 +471,8 @@ async def recover_abandoned_usage_logs(runtime: UsageRuntime) -> int:
                             response_time=finished,
                             latency_ms=max(0, int((finished-started).total_seconds()*1000)),
                             status="interrupted",
+                            upstream_status="unknown",
+                            billing_status="awaiting_bill",
                             error_code="abandoned_runtime_recovered",
                             error_message="Request owner exited without a terminal status",
                         ).execution_options(synchronize_session=False)

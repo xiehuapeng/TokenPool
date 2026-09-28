@@ -1,5 +1,6 @@
 import asyncio
 from datetime import timedelta
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -10,6 +11,7 @@ from app.dependencies import DbSession, admin_user
 from app.models import (
     AdminAuditLog,
     ApiKey,
+    BillingAdjustment,
     InviteCode,
     ModelConfig,
     ModelPricing,
@@ -30,6 +32,10 @@ from app.schemas.admin import (
 from app.schemas.api_key import SecretReveal
 from app.providers.registry import provider_registry
 from app.services.audit_service import record_admin_action
+from app.services.billing_adjustments import (
+    adjustment_amount_expression,
+    effective_cost_expression,
+)
 from app.services.model_sync import record_provider_model_discovery
 from app.services.usage_service import backfill_usage_costs
 from app.utils.errors import GatewayError
@@ -375,7 +381,7 @@ async def list_keys(_admin: Admin, session: DbSession) -> list[dict]:
         select(
             UsageLog.api_key_id.label("api_key_id"),
             func.count().label("total_calls"),
-            func.coalesce(func.sum(UsageLog.cost), 0).label("total_cost"),
+            func.coalesce(func.sum(effective_cost_expression()), 0).label("total_cost"),
         )
         .group_by(UsageLog.api_key_id)
         .subquery()
@@ -733,7 +739,7 @@ async def token_stats(
         func.sum(case((UsageLog.status == "failed", 1), else_=0)),
         func.count(func.distinct(UsageLog.user_id)),
         func.count(func.distinct(UsageLog.model)),
-        func.coalesce(func.sum(UsageLog.cost), 0),
+        func.coalesce(func.sum(effective_cost_expression()), 0),
     ).join(User, User.id == UsageLog.user_id)
     if conditions:
         summary_statement = summary_statement.where(*conditions)
@@ -750,7 +756,7 @@ async def token_stats(
             func.count(func.distinct(UsageLog.model)),
             func.count(func.distinct(UsageLog.provider)),
             func.max(UsageLog.request_time),
-            func.coalesce(func.sum(UsageLog.cost), 0),
+            func.coalesce(func.sum(effective_cost_expression()), 0),
         )
         .join(User, User.id == UsageLog.user_id)
         .group_by(User.username)
@@ -809,7 +815,7 @@ async def token_stats(
             func.coalesce(func.sum(UsageLog.total_tokens), 0),
             func.count(func.distinct(UsageLog.user_id)),
             func.sum(case((UsageLog.status == "success", 1), else_=0)),
-            func.coalesce(func.sum(UsageLog.cost), 0),
+            func.coalesce(func.sum(effective_cost_expression()), 0),
         )
         .join(User, User.id == UsageLog.user_id)
         .group_by(UsageLog.model)
@@ -825,7 +831,7 @@ async def token_stats(
             func.count(UsageLog.id),
             func.coalesce(func.sum(UsageLog.total_tokens), 0),
             func.count(func.distinct(UsageLog.user_id)),
-            func.coalesce(func.sum(UsageLog.cost), 0),
+            func.coalesce(func.sum(effective_cost_expression()), 0),
         )
         .join(User, User.id == UsageLog.user_id)
         .group_by(UsageLog.provider)
@@ -921,7 +927,7 @@ async def user_usage_detail(
             UsageLog.input_tokens,
             UsageLog.output_tokens,
             UsageLog.total_tokens,
-            UsageLog.cost,
+            effective_cost_expression().label("effective_cost"),
             UsageLog.status,
         )
         .where(UsageLog.user_id == user_id)
@@ -1077,10 +1083,11 @@ async def usage_logs(
     provider: str | None = None,
     request_id: str | None = None,
     log_status: str | None = Query(default=None, alias="status"),
+    billing_status: str | None = None,
     today: bool = Query(default=False),
 ) -> dict:
     statement = (
-        select(UsageLog, User)
+        select(UsageLog, User, adjustment_amount_expression().label("adjustment_amount"))
         .join(User, User.id == UsageLog.user_id)
         .order_by(UsageLog.request_time.desc())
     )
@@ -1104,6 +1111,8 @@ async def usage_logs(
         conditions.append(UsageLog.request_id == request_id)
     if log_status:
         conditions.append(UsageLog.status == log_status)
+    if billing_status:
+        conditions.append(UsageLog.billing_status == billing_status)
     if conditions:
         statement = statement.where(*conditions)
         count_statement = count_statement.where(*conditions)
@@ -1128,16 +1137,77 @@ async def usage_logs(
                 "cached_input_tokens": log.cached_input_tokens,
                 "reasoning_tokens": log.reasoning_tokens,
                 "usage_source": log.usage_source,
-                "cost": float(log.cost) if log.cost is not None else None,
-                "cost_source": log.cost_source,
+                "cost": (
+                    float((log.cost or Decimal(0)) + (adjustment_amount or Decimal(0)))
+                    if log.cost is not None or adjustment_amount else None
+                ),
+                "request_cost": float(log.cost) if log.cost is not None else None,
+                "adjustment_cost": float(adjustment_amount or 0),
+                "cost_source": "bill_adjustment" if adjustment_amount else log.cost_source,
                 "price_detail": log.price_detail,
                 "status": log.status,
+                "upstream_status": log.upstream_status,
+                "billing_status": log.billing_status,
+                "stream_observation": log.stream_observation,
+                "upstream_request_id": log.upstream_request_id,
                 "http_status": log.http_status,
                 "latency_ms": log.latency_ms,
                 "error_code": log.error_code,
                 "error_message": log.error_message,
             }
-            for log, user in rows
+            for log, user, adjustment_amount in rows
+        ],
+    }
+
+
+@router.get("/billing-adjustments")
+async def billing_adjustments(
+    _admin: Admin,
+    session: DbSession,
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    username: str | None = None,
+    request_id: str | None = None,
+) -> dict:
+    """Append-only accounting changes, including explicit reversal entries."""
+    conditions = []
+    if username:
+        conditions.append(User.username == username)
+    if request_id:
+        conditions.append(UsageLog.request_id == request_id)
+    statement = (
+        select(BillingAdjustment, UsageLog.request_id, User.username)
+        .join(UsageLog, UsageLog.id == BillingAdjustment.usage_log_id)
+        .join(User, User.id == UsageLog.user_id)
+        .order_by(BillingAdjustment.created_at.desc(), BillingAdjustment.id.desc())
+    )
+    count_statement = (
+        select(func.count(BillingAdjustment.id))
+        .join(UsageLog, UsageLog.id == BillingAdjustment.usage_log_id)
+        .join(User, User.id == UsageLog.user_id)
+    )
+    if conditions:
+        statement = statement.where(*conditions)
+        count_statement = count_statement.where(*conditions)
+    total = await session.scalar(count_statement)
+    rows = await session.execute(statement.limit(limit).offset(offset))
+    return {
+        "total": total or 0,
+        "items": [
+            {
+                "id": adjustment.id,
+                "source_key": adjustment.source_key,
+                "source": adjustment.source,
+                "source_day": adjustment.source_day.isoformat(),
+                "created_at": beijing_iso(adjustment.created_at),
+                "granularity": adjustment.granularity,
+                "amount": float(adjustment.amount),
+                "request_id": linked_request_id,
+                "username": linked_username,
+                "reverses_id": adjustment.reverses_id,
+                "evidence": adjustment.evidence,
+            }
+            for adjustment, linked_request_id, linked_username in rows
         ],
     }
 

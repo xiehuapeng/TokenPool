@@ -1,4 +1,5 @@
 from app.models.admin_audit_log import AdminAuditLog
+from app.models.billing_adjustment import BillingAdjustment
 from app.models.api_key import ApiKey
 from app.models.invite_code import InviteCode
 from app.models.model_config import ModelConfig
@@ -10,6 +11,7 @@ from app.models.user import User
 
 __all__ = [
     "AdminAuditLog",
+    "BillingAdjustment",
     "ApiKey",
     "InviteCode",
     "ModelConfig",

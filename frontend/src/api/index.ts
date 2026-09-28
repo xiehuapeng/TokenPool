@@ -40,6 +40,7 @@ export interface AdminLogFilters extends AdminUsageFilters {
   offset?: number;
   request_id?: string;
   status?: string;
+  billing_status?: string;
   today?: boolean;
 }
 

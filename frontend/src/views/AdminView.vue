@@ -49,6 +49,7 @@ const logFilters = reactive({
   model: "",
   provider: "",
   status: "",
+  billing_status: "",
   request_id: "",
 });
 const usageDetailVisible = ref(false);
@@ -501,6 +502,7 @@ function buildLogParams(): AdminLogFilters {
     model: logFilters.model || undefined,
     provider: logFilters.provider || undefined,
     status: logFilters.status || undefined,
+    billing_status: logFilters.billing_status || undefined,
     request_id: logFilters.request_id.trim() || undefined,
     limit: logPageSize.value,
     offset: (logPage.value - 1) * logPageSize.value,
@@ -674,6 +676,7 @@ async function resetLogFilters() {
     model: "",
     provider: "",
     status: "",
+    billing_status: "",
     request_id: "",
   });
   logPage.value = 1;
@@ -687,6 +690,7 @@ async function showUserLogs(username: string) {
     model: statsFilters.model,
     provider: statsFilters.provider,
     status: "",
+    billing_status: "",
     request_id: "",
   });
   logPage.value = 1;
@@ -755,11 +759,38 @@ function costSourceLabel(source: unknown) {
   if (source === "realtime") return "请求完成时实时计价";
   if (source === "estimated") return "估算费用（详见计价明细）";
   if (source === "bill_allocated") return "厂商账单分摊";
+  if (source === "bill_adjustment") return "独立账本调整";
   return String(source || "—");
+}
+
+function billingStatusLabel(row: any) {
+  if (row.billing_status === "pending") return "处理中";
+  if (row.billing_status === "awaiting_bill") return "待厂商对账";
+  if (row.billing_status === "usage_priced") return "实时用量已计价";
+  if (row.billing_status === "usage_unpriced") return "有用量但未计价";
+  if (row.billing_status === "bill_allocated") return "厂商账单已补记";
+  if (row.cost_source === "bill_allocated") return "账单分摊（历史）";
+  return "旧记录未分类";
+}
+
+function upstreamStatusLabel(status: string | null) {
+  if (status === "completed") return "已完成";
+  if (status === "cancel_requested") return "已请求取消";
+  if (status === "failed") return "失败";
+  if (status === "unknown") return "中断后未知";
+  if (status === "not_started") return "尚未确认";
+  return "旧记录未分类";
 }
 
 function formatPriceDetail(detail: any) {
   if (!detail) return "—";
+  if (detail.bill_reconciliation) {
+    const reconciliation = detail.bill_reconciliation;
+    const granularity = reconciliation.request_level_exact === false
+      ? "用户日级归属，非本次请求精确费用"
+      : "厂商账单对账";
+    return `厂商账单 ${reconciliation.billing_day || ""} · ${granularity}`;
+  }
   const parts = [
     `输入 ${formatPrice(detail.input_price)}`,
     `缓存 ${formatPrice(detail.cached_input_price)}`,
@@ -1404,7 +1435,7 @@ onUnmounted(() => {
             <div class="metric-card">
               <span>总费用</span>
               <strong>{{ formatCost(stats.summary.cost) }}</strong>
-              <small>按请求时定价快照计算（人民币）</small>
+              <small>含实时计价与厂商账单分摊（人民币）</small>
             </div>
             <div class="metric-card">
               <span>输入 Token</span>
@@ -1559,6 +1590,11 @@ onUnmounted(() => {
               <el-option label="客户端断开" value="client_disconnected" />
               <el-option label="处理中" value="pending" />
             </el-select>
+            <el-select v-model="logFilters.billing_status" clearable placeholder="全部计费状态">
+              <el-option label="待厂商对账" value="awaiting_bill" />
+              <el-option label="实时用量已计价" value="usage_priced" />
+              <el-option label="有用量但未计价" value="usage_unpriced" />
+            </el-select>
             <el-input
               v-model="logFilters.request_id"
               clearable
@@ -1587,6 +1623,9 @@ onUnmounted(() => {
                   <span>Request ID</span><code>{{ row.request_id }}</code>
                   <span>调用方式</span><span>{{ row.stream ? "SSE 流式" : "非流式" }}</span>
                   <span>HTTP 状态</span><span>{{ row.http_status ?? "—" }}</span>
+                  <span>上游状态</span><span>{{ upstreamStatusLabel(row.upstream_status) }}</span>
+                  <span>上游请求 ID</span><code>{{ row.upstream_request_id || row.stream_observation?.provider_response_id || "—" }}</code>
+                  <span>流式收尾</span><span>{{ row.stream_observation ? `完成帧 ${row.stream_observation.done_seen ? "有" : "无"} / Usage ${row.stream_observation.usage_seen ? "有" : "无"}` : "—" }}</span>
                   <span>Usage 来源</span><span>{{ row.usage_source || "—" }}</span>
                   <span>缓存命中 Token</span><span>{{ row.cached_input_tokens ?? "—" }}</span>
                   <span>推理 Token</span><span>{{ row.reasoning_tokens ?? "—" }}</span>
@@ -1597,6 +1636,8 @@ onUnmounted(() => {
                       （{{ costSourceLabel(row.cost_source) }}）
                     </template>
                   </span>
+                  <span>请求原费用</span><span>{{ row.request_cost != null ? formatCost(row.request_cost) : "—" }}</span>
+                  <span>独立账本调整</span><span>{{ row.adjustment_cost ? formatCost(row.adjustment_cost) : "—" }}</span>
                   <span>计价明细</span><span>{{ formatPriceDetail(row.price_detail) }}</span>
                   <span>错误信息</span><span>{{ row.error_message || row.error_code || "—" }}</span>
                 </div>
@@ -1629,6 +1670,9 @@ onUnmounted(() => {
                   {{ row.status }}
                 </el-tag>
               </template>
+            </el-table-column>
+            <el-table-column label="计费状态" min-width="150">
+              <template #default="{ row }">{{ billingStatusLabel(row) }}</template>
             </el-table-column>
             <el-table-column prop="latency_ms" label="耗时（ms）" />
           </el-table>

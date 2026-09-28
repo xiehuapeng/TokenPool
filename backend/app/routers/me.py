@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy import and_, case, func, or_, select, update
 
 from app.config.settings import get_settings
+from app.services.billing_adjustments import effective_cost_expression
 from app.dependencies import DbSession, current_user
 from app.models import (
     ApiKey,
@@ -455,7 +456,7 @@ async def usage_summary(
                 func.coalesce(func.sum(UsageLog.cached_input_tokens), 0),
                 func.coalesce(func.sum(UsageLog.reasoning_tokens), 0),
                 func.coalesce(func.sum(UsageLog.total_tokens), 0),
-                func.coalesce(func.sum(UsageLog.cost), 0),
+                func.coalesce(func.sum(effective_cost_expression()), 0),
             ).where(*conditions)
         )
     ).one()
@@ -472,7 +473,7 @@ async def usage_summary(
                 func.coalesce(func.sum(UsageLog.cached_input_tokens), 0),
                 func.coalesce(func.sum(UsageLog.reasoning_tokens), 0),
                 func.coalesce(func.sum(UsageLog.total_tokens), 0),
-                func.coalesce(func.sum(UsageLog.cost), 0),
+                func.coalesce(func.sum(effective_cost_expression()), 0),
             )
             .where(*conditions)
             .group_by(UsageLog.model, UsageLog.provider)

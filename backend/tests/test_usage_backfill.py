@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import delete, select
 
 from app.database.session import SessionLocal
-from app.models import ApiKey, UsageLog, User
+from app.models import ApiKey, BillingAdjustment, UsageLog, User
 from app.services.usage_service import (
     backfill_usage_costs,
     calibrate_estimated_cache_rates,
@@ -15,6 +15,7 @@ from app.utils.time import utc_now
 
 async def _clear_usage_logs() -> None:
     async with SessionLocal() as session:
+        await session.execute(delete(BillingAdjustment))
         await session.execute(delete(UsageLog))
         await session.commit()
 
