@@ -267,6 +267,7 @@ async def update_key_preferred_model(
 MODEL_DESCRIPTIONS = {
     "glm-5.3": "复杂工程、代码重构、终端任务、Agent",
     "glm-5.3-flash": "综合办公、图片理解、H5、日常代码",
+    "glm-5.3-flashx": "GLM 5.3 Flash 高速版，适合低延迟编程和图片理解",
     "glm-5.2": "上一代 GLM 旗舰，能力稳定均衡，可作为 glm-5.3 的备选。",
     "glm-5.1": "上一代 GLM 旗舰，综合编码与推理能力良好，价格低于最新旗舰。",
     "glm-5": "GLM 5 系列基础旗舰，适合常规编码与对话任务。",
@@ -300,6 +301,7 @@ MODEL_INPUT_CONTEXT: dict[str, dict] = {
         "context_window": "1M",
     },
     "glm-5.3-flash": {"modalities": ["图片", "文本"], "context_window": "1M"},
+    "glm-5.3-flashx": {"modalities": ["图片", "文本"], "context_window": "1M"},
     "glm-5.3": {"modalities": ["文本"], "context_window": "1M"},
     "qwen3.8-max": {"modalities": ["图片", "文本"], "context_window": "1M"},
     "qwen3.8-flash": {"modalities": ["图片", "文本"], "context_window": "1M"},

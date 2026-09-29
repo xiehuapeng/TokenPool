@@ -4,25 +4,29 @@
 固定模型 `team-coding`，即可在网站选择实际调用模型；后端统一完成身份认证、
 Provider 路由、SSE 转发、Token 统计和调用审计。
 
-当前版本运行在 Ubuntu 24.04 生产服务器。本文档的代码、Git 与生产状态最后
-核对于 2026-09-28；下方按日期排列的发布记录保留当时事实，不作为当前状态。
+当前版本运行在 Ubuntu 24.04 生产服务器。代码、Git、生产模型目录与运行状态
+最后核对于 2026-09-29；下方按日期排列的发布记录保留当时事实，不作为当前状态。
 
-## 当前项目状态（2026-09-28 现场核验）
+## 当前项目状态（2026-09-29 现场核验）
 
-- 业务代码版本 `870b75c` 由笔记本 `LAPTOP-XHP-Y9000P` 提交并推送；本 README
-  的后续文档更新也经 GitHub `main` 同步。台式机 `WIN-20260310JRS` 只做
-  `--ff-only` 快进。三处 `main` 同步，具体 HEAD 以现场 Git 为准；台式机工作树
-  干净，笔记本未跟踪的厂商账单和本地辅助脚本没有入库。
+- 9 月 29 日模型发布代码及本文档由笔记本 `LAPTOP-XHP-Y9000P` 提交、推送
+  GitHub `main`；台式机 `WIN-20260310JRS` 仅做 `--ff-only` 快进，具体 HEAD
+  以现场 Git 为准。笔记本未跟踪的厂商账单和本地辅助脚本没有入库。
 - 生产在 9 月 24 日已滚动发布计费生命周期版本，数据库迁移为
-  `20260923_0012`。9 月 28 日复核时，生产后端 `app` 与迁移目录的 74 个 Python
-  文件、当前前端构建的 54 个文件逐项与笔记本匹配；生产另保留旧静态资源供缓存
-  客户端使用。服务正常且 `/health` 返回 200。本次 Git 同步**没有重新部署生产**。
+  `20260923_0012`。9 月 29 日再次滚动发布模型目录变更，主服务 8000 和 Nginx
+  正常，候选 8001 排空后停止；本次未迁移数据库结构或重新发布前端静态资源。
+  9 月 28 日其余后端、前端逐文件匹配的核验属当日基线。
 - 新请求分别记录客户端、上游与计费状态，保留流式完成帧和 usage 到达证据；缺
   usage 的终态请求进入待对账筛选。厂商账单补差写入独立、可冲销的账本，不覆盖
   原始请求费用和 Token。历史厂商日账单分摊是用户日级归属，不等于逐请求精确费用。
-- 本次同步前在笔记本验证：后端 183 项通过、1 项跳过，前端 13 项通过并完成
+- 本次发布前在笔记本验证：后端 190 项通过、1 项跳过，前端 13 项通过并完成
   生产构建；台式机本地依赖及运行测试未单独验收。网络间歇超时/重置和断连后
   厂商计费的精确归属仍需持续取证，不应以一次健康检查代替端到端可用性验收。
+- `glm-5.3-flashx` 补齐官方 API 刊例价格和视觉/工具能力标记；`qwen3.8-max`
+  保持公开 ID、展示名和用户偏好不变，上游固定为 `qwen3.8-max-0902`。两者经
+  生产真实 SSE 调用返回内容、usage 与结束帧，且审计为 `usage_priced`。未改变
+  其他模型开放权限或排序，未重算历史费用；智谱 Coding Plan 与 Qwen 节省计划
+  的实际现金抵扣仍以之后厂商账单为准。
 
 ## 当前能力
 
@@ -38,8 +42,8 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
   返回 HTTP 400 `vision_not_supported`，包括历史消息仍带图片的情况。
   调用审计记录原模型、实际模型和选择原因，响应头提供 `X-Original-Model`、
   `X-Actual-Model`、`X-Route-Reason`（`explicit` / `preference` / `vision_fallback`）。当前
-  10 个模型带视觉标记（`deepseek-flash`、`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`、
-  `glm-5.3-flash`、`qwen3.8-max`、`qwen3.8-flash`、`qwen3.7-plus`、`kimi-k3`、
+  11 个模型带视觉标记（`deepseek-flash`、`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`、
+  `glm-5.3-flash`、`glm-5.3-flashx`、`qwen3.8-max`、`qwen3.8-flash`、`qwen3.7-plus`、`kimi-k3`、
   `kimi-k2.7-code`、`kimi-k2.7-code-highspeed`）
 - 邀请码注册、账号密码登录、随机 API Key 生成与吊销
 - API Key 使用 HMAC 摘要认证，另存加密副本供本人登录后重复查看；失效时销毁
@@ -69,14 +73,17 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
 | DeepSeek | `deepseek-v4-pro` | 复杂任务与深度推理 | |
 | DeepSeek | `deepseek-v4-flash-vision-exp` | 兼容旧名，由 V4.1-Flash 承接 | ✓ |
 | 智谱 GLM | `glm-5.3-flash` | 轻量快速任务 | ✓ |
+| 智谱 GLM | `glm-5.3-flashx` | Flash 高速版，适合低延迟编程与图片理解 | ✓ |
 | 智谱 GLM | `glm-5.3` | 复杂任务 | |
 | Kimi | `kimi-k3` | 复杂工程与深度推理 | ✓ |
 | Kimi | `kimi-k2.7-code` | 日常编程与长程任务 | ✓ |
 | Kimi | `kimi-k2.7-code-highspeed` | Coding 高速响应 | ✓ |
-| 阿里云 Qwen | `qwen3.8-max` | 复杂任务与深度分析 | ✓ |
+| 阿里云 Qwen | `qwen3.8-max` | 复杂任务与深度分析；上游固定为 `qwen3.8-max-0902` | ✓ |
 | 阿里云 Qwen | `qwen3.8-flash` | 轻量快速任务 | ✓ |
 | 阿里云 Qwen | `qwen3.7-plus` | 日常轻量任务 | ✓ |
 | 智谱 GLM | 其余 glm 系列（含 `glm-4.5-air`） | 停用；须重新核价并测试后才能开放 | |
+
+DeepSeek 旧 Flash ID 暂保留兼容调用，前台去重展示尚未实施。
 
 ### 2026-09-22 计费与兼容规则
 

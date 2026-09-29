@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.database.session import SessionLocal
 from app.models import ModelConfig, ModelPricing, ProviderConfig
 from app.services.bootstrap import seed_initial_data
+from app.services.model_router import resolve_model
 
 
 @pytest.mark.asyncio
@@ -44,6 +45,41 @@ async def test_qwen_target_models_are_enabled_when_key_is_configured(client):
         model for model in models if model.public_model == "qwen3.8-flash"
     )
     assert flash.capabilities.get("vision") is True
+    max_model = next(
+        model for model in models if model.public_model == "qwen3.8-max"
+    )
+    assert max_model.upstream_model == "qwen3.8-max-0902"
+    assert max_model.display_name == "Qwen 3.8 Max"
+
+
+@pytest.mark.asyncio
+async def test_qwen_max_snapshot_keeps_public_id_and_pricing_on_reseed(client):
+    async with SessionLocal() as session:
+        model = await session.scalar(
+            select(ModelConfig).where(ModelConfig.public_model == "qwen3.8-max")
+        )
+        model_id = model.id
+        # 模拟旧生产行；升级不得更换公开 ID/主键或创建第二条开放模型。
+        model.upstream_model = "qwen3.8-max"
+        await session.commit()
+
+    await seed_initial_data()
+
+    async with SessionLocal() as session:
+        route = await resolve_model(
+            session, user_id=1, public_model="qwen3.8-max"
+        )
+        pricing = await session.scalar(
+            select(ModelPricing).where(ModelPricing.model_config_id == model_id)
+        )
+        assert route.model.id == model_id
+        assert route.model.public_model == "qwen3.8-max"
+        assert route.model.upstream_model == "qwen3.8-max-0902"
+        assert route.model.display_name == "Qwen 3.8 Max"
+        assert pricing is not None
+        assert pricing.input_price == Decimal("12")
+        assert pricing.cached_input_price == Decimal("1.5")
+        assert pricing.output_price == Decimal("36")
 
 
 @pytest.mark.asyncio

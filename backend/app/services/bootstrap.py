@@ -15,6 +15,7 @@ VISION_CAPABLE_MODELS = {
     "deepseek-v4-flash",
     "deepseek-v4-flash-vision-exp",
     "glm-5.3-flash",
+    "glm-5.3-flashx",
     "qwen3.8-max",
     "qwen3.8-flash",
     "qwen3.7-plus",
@@ -74,6 +75,12 @@ SEED_PRICINGS: dict[str, dict] = {
         "cached_input_price": Decimal("0.23"),
         "output_price": Decimal("2.8"),
         "note": "智谱官网价，不分档",
+    },
+    "glm-5.3-flashx": {
+        "input_price": Decimal("2"),
+        "cached_input_price": Decimal("0.57"),
+        "output_price": Decimal("7"),
+        "note": "智谱API官网刊例，不分档；高速版支持图像理解，Coding Plan实际扣费以厂商账单为准",
     },
     "glm-5": {
         "input_price": Decimal("4"),
@@ -330,6 +337,7 @@ async def seed_initial_data() -> None:
                 "glm-5-turbo",
                 "glm-5.3",
                 "glm-5.3-flash",
+                "glm-5.3-flashx",
             )
         ):
             capabilities = {
@@ -436,6 +444,13 @@ async def seed_initial_data() -> None:
             )
             sort_base = 200 if code == "qwen" else 300
             for index, (model_id, display_name) in enumerate(seed_models):
+                # 固定 Qwen Max 的上游快照；公开模型 ID、用户偏好和前台名称
+                # 均保持 qwen3.8-max，审计另记实际 upstream_model。
+                upstream_model = (
+                    "qwen3.8-max-0902"
+                    if code == "qwen" and model_id == "qwen3.8-max"
+                    else model_id
+                )
                 existing_model = await session.scalar(
                     select(ModelConfig).where(
                         ModelConfig.public_model == model_id
@@ -456,7 +471,7 @@ async def seed_initial_data() -> None:
                         ModelConfig(
                             public_model=model_id,
                             provider_id=provider.id,
-                            upstream_model=model_id,
+                            upstream_model=upstream_model,
                             display_name=display_name,
                             enabled=enabled_by_default,
                             default_allowed=enabled_by_default,
@@ -466,7 +481,7 @@ async def seed_initial_data() -> None:
                     )
                 else:
                     existing_model.provider_id = provider.id
-                    existing_model.upstream_model = model_id
+                    existing_model.upstream_model = upstream_model
                     existing_model.display_name = display_name
                     # Kimi首次接入时默认开放；后续启动保留管理员在模型
                     # 管理页做出的启停选择。Qwen暂时沿用原有启动策略。
