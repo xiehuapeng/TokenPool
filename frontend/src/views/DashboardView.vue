@@ -9,6 +9,7 @@ import { copyText } from "@/utils/clipboard";
 import { preloadAuthenticatedViewsWhenIdle } from "@/router/viewLoaders";
 import { formatBeijingTime } from "@/utils/time";
 import { chatCompletionsUrl } from "@/utils/requestUrls";
+import { displayedModelId, visibleUserModels } from "@/utils/modelVisibility";
 
 const baseUrl = ref("");
 const fullRequestUrl = computed(() => chatCompletionsUrl(baseUrl.value));
@@ -61,9 +62,9 @@ async function load() {
     baseUrl.value = config.data.base_url;
     maxApiKeys.value = config.data.max_api_keys ?? 3;
     keys.value = keyList.data;
-    models.value = modelList.data;
+    models.value = visibleUserModels(modelList.data);
     gatewayModel.value = preference.data.gateway_model;
-    const preferredModel = preference.data.selected_model;
+    const preferredModel = displayedModelId(preference.data.selected_model);
     selectedModel.value = activeModels.value.some(
       (item) => item.id === preferredModel,
     )
@@ -98,7 +99,7 @@ async function saveModelPreference(value: string) {
 
 async function saveKeyModel(row: ApiKeyItem, value: string) {
   const normalized = value || "";
-  if (normalized === (row.preferred_model || "")) return;
+  if (normalized === displayedModelId(row.preferred_model)) return;
   const previous = row.preferred_model;
   savingKeyModelId.value = row.id;
   try {
@@ -305,7 +306,7 @@ onMounted(load);
         <el-table-column label="偏好模型" min-width="220">
           <template #default="{ row }">
             <el-select
-              :model-value="row.preferred_model || ''"
+              :model-value="displayedModelId(row.preferred_model)"
               size="small"
               placeholder="跟随全局默认"
               aria-label="选择该 Key 的偏好模型"

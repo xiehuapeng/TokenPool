@@ -31,6 +31,14 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
 - 同日滚动修复 Uvicorn 访问日志脱敏过滤器与 Alembic 启动日志配置：候选和
   主实例的真实访问日志均能保留请求字段并遮盖模拟密钥；主实例、Nginx 正常，
   候选排空停止。此项只改日志处理，不修改模型路由、历史调用或计费数据。
+- 同日下午修复 Qwen 官方模型发现时的公开 ID 冲突：`qwen3.8-max` 仍固定路由
+  `qwen3.8-max-0902`，官方返回的未版本化同名 ID 作为默认关闭的独立目录项
+  `qwen:qwen3.8-max` 保存。真实同步成功，主实例定时同步已刷新时间戳；候选、
+  主实例和 Nginx 入口的 Qwen 流式调用均返回正文、usage 和结束帧，且审计按
+  快照模型计价。用户工作台和模型列表现在仅展示 `deepseek-flash` 与
+  `deepseek-v4-pro` 两个 DeepSeek 项；旧 Flash ID 的显式 API 调用和已有 Key
+  绑定仍兼容，管理端与历史用量保留原名。前端原子发布及真实浏览器登录检查
+  通过；这次未迁移结构、改写历史费用或调整用户权限。
 
 ## 当前能力
 
@@ -65,17 +73,16 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
   「限时半价/限时折扣」标签，悬停可见折扣截止等完整备注
 - Vue 3 + TypeScript + Element Plus 按需引入、路由懒加载和移动端适配
 
-## 当前默认开放模型
+## 当前用户前台展示模型
 
 实际可用模型以管理后台和 Provider 官方 `/models` 同步结果为准。当前团队默认
-开放：
+开放 13 个模型；用户工作台和模型列表展示其中 11 个，隐藏两个 DeepSeek 旧
+Flash 别名以免重复选择：
 
 | Provider | 模型 | 用途 | 图片识别 |
 |---|---|---|---|
 | DeepSeek | `deepseek-flash` | 官方推荐模型名（V4.1-Flash）：日常问答、简单任务与截图分析 | ✓ |
-| DeepSeek | `deepseek-v4-flash` | 兼容旧名，由 V4.1-Flash 承接 | ✓ |
 | DeepSeek | `deepseek-v4-pro` | 复杂任务与深度推理 | |
-| DeepSeek | `deepseek-v4-flash-vision-exp` | 兼容旧名，由 V4.1-Flash 承接 | ✓ |
 | 智谱 GLM | `glm-5.3-flash` | 轻量快速任务 | ✓ |
 | 智谱 GLM | `glm-5.3-flashx` | Flash 高速版，适合低延迟编程与图片理解 | ✓ |
 | 智谱 GLM | `glm-5.3` | 复杂任务 | |
@@ -87,7 +94,8 @@ Provider 路由、SSE 转发、Token 统计和调用审计。
 | 阿里云 Qwen | `qwen3.7-plus` | 日常轻量任务 | ✓ |
 | 智谱 GLM | 其余 glm 系列（含 `glm-4.5-air`） | 停用；须重新核价并测试后才能开放 | |
 
-DeepSeek 旧 Flash ID 暂保留兼容调用，前台去重展示尚未实施。
+DeepSeek 旧 ID `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 仍可显式调用，
+已有 Key 绑定及历史审计不自动改写；管理端仍可查看这两项。
 
 ### 2026-09-22 计费与兼容规则
 

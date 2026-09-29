@@ -30,12 +30,17 @@ def _public_model_id(
     provider_code: str,
     upstream_model: str,
     occupied: dict[str, int],
-    provider_id: int,
 ) -> str:
-    owner = occupied.get(upstream_model)
-    if owner is None or owner == provider_id:
+    # A public alias may intentionally point to a pinned upstream snapshot.
+    # The provider's unpinned ID is then a distinct, disabled discovery row.
+    if upstream_model not in occupied:
         return upstream_model
-    return f"{provider_code}:{upstream_model}"
+    candidate = f"{provider_code}:{upstream_model}"
+    suffix = 2
+    while candidate in occupied:
+        candidate = f"{provider_code}:{upstream_model}:{suffix}"
+        suffix += 1
+    return candidate
 
 
 async def record_provider_model_discovery(
@@ -79,7 +84,6 @@ async def record_provider_model_discovery(
             provider.code,
             upstream.id,
             occupied,
-            provider.id,
         )
         model = ModelConfig(
             public_model=public_model,

@@ -4,6 +4,7 @@ import { ElMessage } from "element-plus";
 import "element-plus/es/components/message/style/css";
 import { meApi } from "@/api";
 import { errorMessage } from "@/api/http";
+import { visibleUserModels } from "@/utils/modelVisibility";
 
 const models = ref<any[]>([]);
 const settingModelId = ref<string | null>(null);
@@ -125,7 +126,7 @@ function rowClassName({ row }: { row: any }) {
 }
 
 async function refreshModels() {
-  models.value = (await meApi.models()).data;
+  models.value = visibleUserModels((await meApi.models()).data);
 }
 
 async function setDefaultModel(row: any) {
