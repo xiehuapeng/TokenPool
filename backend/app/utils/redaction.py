@@ -25,6 +25,20 @@ def redact_secrets(value: Any) -> str:
 
 class SecretRedactionFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
+        if (
+            record.name == "uvicorn.access"
+            and isinstance(record.args, tuple)
+            and len(record.args) == 5
+        ):
+            # Uvicorn's AccessFormatter reads the five structured arguments
+            # directly; flattening them makes even a successful request raise
+            # a logging error. Redact text fields without changing the shape.
+            record.msg = redact_secrets(record.msg)
+            record.args = tuple(
+                redact_secrets(value) if isinstance(value, str) else value
+                for value in record.args
+            )
+            return True
         record.msg = redact_secrets(record.getMessage())
         record.args = ()
         return True

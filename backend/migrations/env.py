@@ -12,7 +12,9 @@ from app import models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # This runs inside the live Uvicorn process during startup. Keep its
+    # existing access/error loggers enabled while configuring Alembic's own.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
