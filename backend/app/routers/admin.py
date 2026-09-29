@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.dependencies import DbSession, admin_user
@@ -61,6 +61,14 @@ def _provider_model_display_name(provider_code: str, model_id: str) -> str:
         }
         return names.get(model_id, model_id)
     return model_id
+
+
+def _team_stats_user_visible():
+    """Keep release smoke calls in the audit ledger, not team-facing totals."""
+    return ~or_(
+        User.username.like("release-smoke-__________"),
+        User.username.like("releaseui__________"),
+    )
 
 
 async def _list_upstream_models(provider: ProviderConfig) -> list:
@@ -714,7 +722,7 @@ async def token_stats(
     provider: str | None = None,
     today: bool = Query(default=False),
 ) -> dict:
-    conditions = []
+    conditions = [_team_stats_user_visible()]
     if today:
         day_start = beijing_day_start_utc()
         conditions.append(UsageLog.request_time >= day_start)
@@ -782,7 +790,11 @@ async def token_stats(
         }
         for row in by_user_rows
     }
-    user_statement = select(User.username).order_by(User.username)
+    user_statement = (
+        select(User.username)
+        .where(_team_stats_user_visible())
+        .order_by(User.username)
+    )
     if username:
         user_statement = user_statement.where(User.username == username)
     all_usernames = list(await session.scalars(user_statement))
@@ -843,12 +855,20 @@ async def token_stats(
 
     filter_models = list(
         await session.scalars(
-            select(UsageLog.model).distinct().order_by(UsageLog.model)
+            select(UsageLog.model)
+            .join(User, User.id == UsageLog.user_id)
+            .where(_team_stats_user_visible())
+            .distinct()
+            .order_by(UsageLog.model)
         )
     )
     filter_providers = list(
         await session.scalars(
-            select(UsageLog.provider).distinct().order_by(UsageLog.provider)
+            select(UsageLog.provider)
+            .join(User, User.id == UsageLog.user_id)
+            .where(_team_stats_user_visible())
+            .distinct()
+            .order_by(UsageLog.provider)
         )
     )
 
