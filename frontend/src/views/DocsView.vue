@@ -51,6 +51,7 @@ const tools = [
     name: "Trae",
     link: "https://www.trae.cn/work",
     linkText: "下载 Trae（TRAE Work 桌面端）",
+    images: [],
     steps: [
       "打开设置：进入 TRAE Work 的「设置 → 模型」页面。",
       "添加模型：点击「添加模型」，API 格式选择「OpenAI Chat Completions 格式」。",
@@ -64,6 +65,7 @@ const tools = [
     name: "WorkBuddy",
     link: "https://www.workbuddy.cn/events/invite?inviteCode=nr0vcytear025",
     linkText: "获取 WorkBuddy",
+    images: [],
     steps: [
       "打开设置：进入 WorkBuddy 的「设置 → 模型」页面。",
       "添加模型：点击「添加模型」，按上方统一配置填写自定义模型（OpenAI Compatible）参数。",
@@ -71,12 +73,37 @@ const tools = [
       "切换模型：真实模型在工作台选择，下一次调用生效。",
     ],
   },
+  {
+    name: "MobileWork",
+    link: "",
+    linkText: "",
+    steps: [
+      "打开 MobileWork 的「设置 → 模型」，在「本地配置文件」中点击「添加模型」。",
+      "提供商选择「自定义」；接口地址填写上方 Base URL（以 /v1 结尾），不要填写完整的 /v1/chat/completions 地址。",
+      "鉴权方式选择「Bearer Token（MoMA / OpenAI 兼容）」；在「Bearer Token（API KEY）」中填入本网站工作台生成的个人 Key，不要填写登录密码或上游厂商 Key。",
+      "模型名称填写 team-coding。需要处理图片时可勾选「图片输入」；输入、输出上限没有明确要求时保留默认值。MAF 防护按组织要求设置，不必为接入中转站特意关闭。",
+      "点击「保存」，确认「已保存模型」中出现并启用「自定义 · team-coding」。回到会话选择该模型，发送一条不含敏感信息的短消息，确认得到回复。",
+      "到本网站「用量统计」核对请求数和实际模型；以后在工作台切换真实模型，下一次 team-coding 调用生效。",
+    ],
+    images: [
+      {
+        src: "/guides/mobilework-model-settings.png",
+        alt: "MobileWork 设置页面中的模型入口、添加模型按钮与已启用的 team-coding",
+        caption: "设置 → 模型：点击添加模型；保存后在已保存模型中确认启用。点击图片可查看原图。",
+      },
+      {
+        src: "/guides/mobilework-custom-model-form.png",
+        alt: "MobileWork 自定义模型配置示例，展示接口地址、鉴权方式和模型名称",
+        caption: "字段示例：截图来自修改模型界面；接口地址以本页当前 Base URL 为准，密钥使用自己的个人 Key。点击图片可查看原图。",
+      },
+    ],
+  },
 ];
 </script>
 
 <template>
   <div>
-    <div class="page-heading"><div><h1>接入指南</h1><p>Trae、WorkBuddy 统一使用 OpenAI Compatible 配置。</p></div></div>
+    <div class="page-heading"><div><h1>接入指南</h1><p>Trae、WorkBuddy、MobileWork 统一使用 OpenAI Compatible 配置。</p></div></div>
     <el-card shadow="never">
       <template #header>
         <div class="card-header">
@@ -99,13 +126,24 @@ const tools = [
       </el-descriptions>
     </el-card>
     <el-card shadow="never" class="section-card">
-      <template #header><strong>Coding 工具配置</strong></template>
+      <template #header><strong>客户端接入配置</strong></template>
       <el-tabs>
         <el-tab-pane v-for="tool in tools" :key="tool.name" :label="tool.name">
           <ol class="guide-steps">
             <li v-for="step in tool.steps" :key="step">{{ step }}</li>
           </ol>
-          <el-link :href="tool.link" target="_blank" type="primary" class="tool-link">{{ tool.linkText }}</el-link>
+          <el-link v-if="tool.link" :href="tool.link" target="_blank" type="primary" class="tool-link">{{ tool.linkText }}</el-link>
+          <div v-if="tool.images.length" class="guide-screenshots">
+            <figure v-for="image in tool.images" :key="image.src" class="guide-screenshot">
+              <a :href="image.src" target="_blank" rel="noopener noreferrer">
+                <img :src="image.src" :alt="image.alt" loading="lazy" />
+              </a>
+              <figcaption>{{ image.caption }}</figcaption>
+            </figure>
+          </div>
+          <p v-if="tool.name === 'MobileWork'" class="guide-note">
+            截图仅用于辨认设置项；若本页显示的是 HTTP 地址，Bearer Token 会随请求传输，请仅在可信网络或获准的安全通道中使用。
+          </p>
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -125,7 +163,7 @@ const tools = [
       class="section-card"
       type="success"
       :closable="false"
-      title="Trae、WorkBuddy 只需配置一次 team-coding；以后在工作台切换真实模型即可。"
+      title="Trae、WorkBuddy、MobileWork 只需配置一次 team-coding；以后在工作台切换真实模型即可。"
     />
     <el-alert class="section-card" type="info" :closable="false">
       team-coding 可在图片请求中自动选择有权限的视觉模型。显式填写真实模型 ID 时，

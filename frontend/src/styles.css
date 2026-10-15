@@ -98,6 +98,12 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
 .steps { margin: 0; padding-left: 23px; line-height: 2.5; color: #475467; }
 .guide-steps { margin: 6px 0; padding-left: 24px; line-height: 2.2; color: #475467; }
 .tool-link { margin-top: 12px; }
+.guide-screenshots { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 18px; margin-top: 20px; }
+.guide-screenshot { flex: 1 1 360px; max-width: 640px; margin: 0; }
+.guide-screenshot a { display: block; }
+.guide-screenshot img { display: block; width: 100%; height: auto; border: 1px solid #d0d5dd; border-radius: 8px; }
+.guide-screenshot figcaption { margin-top: 8px; color: #667085; font-size: 13px; line-height: 1.6; }
+.guide-note { margin: 16px 0 0; color: #667085; font-size: 13px; line-height: 1.7; }
 .model-pills { display: flex; flex-wrap: wrap; gap: 10px; min-height: 42px; align-items: center; }
 .model-select-popper .el-select-dropdown__item {
   height: auto;
@@ -466,6 +472,7 @@ code { font-family: "Cascadia Code", Consolas, monospace; }
   }
   .copy-value .el-button { margin-left: 0; }
   .section-card { margin-top: 14px; }
+  .guide-steps { padding-left: 21px; line-height: 1.8; }
   .code-block { padding: 16px; font-size: 12px; }
   .metric-card { padding: 18px; }
   .metric-card strong { font-size: 25px; }

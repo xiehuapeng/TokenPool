@@ -213,6 +213,34 @@ Model 也可以直接填写你有权限的真实模型 ID（如 `glm-5.3-flash`�
 工作台偏好路由，直接调用对应模型。日常问答、资料整理等轻量任务建议优先使用
 低成本模型（如 `glm-5.3-flash`、`deepseek-v4-flash`），复杂任务再换高规格模型。
 
+#### MobileWork 添加自定义模型
+
+MobileWork 现可按 OpenAI 兼容协议接入本中转站。先登录 TokenPool 工作台，
+生成自己的团队 API Key，并确认工作台已选择有权限使用的实际模型。然后在
+MobileWork 中打开「设置 → 模型 → 本地配置文件 → 添加模型」，按下表填写：
+
+| MobileWork 字段 | 填写内容 |
+|---|---|
+| 提供商 | `自定义` |
+| 接口地址 | TokenPool「接入指南」显示的 **Base URL**，以 `/v1` 结尾；不要填完整的 `/v1/chat/completions` 地址 |
+| 鉴权方式 | `Bearer Token（MoMA / OpenAI 兼容）` |
+| Bearer Token（API KEY） | 工作台生成的**个人** `sk-team-...` Key；不要使用网站登录密码或上游厂商 Key |
+| 模型名称 | `team-coding` |
+| 图片输入 | 需要传图片时勾选；实际调用须有可用的视觉模型或可用的视觉回退 |
+| 输入、输出上限 | 没有明确需求时保留提供商默认值；不要照截图中的快捷数值猜测模型上限 |
+| MAF 防护 | 按组织要求设置，无需为接入中转站特意关闭 |
+
+保存后，在「已保存模型」中确认「自定义 · team-coding」已启用；回到会话选择该
+模型，发送一条不含敏感信息的短消息。收到回复后，再到 TokenPool「用量统计」
+核对请求数和实际模型。以后切换实际模型只需在工作台操作，下一次
+`team-coding` 调用生效。
+
+界面参考：[设置与已保存模型](frontend/public/guides/mobilework-model-settings.png)、
+[自定义模型字段示例](frontend/public/guides/mobilework-custom-model-form.png)。第二张截图
+来自「修改模型」界面，新增时填写相同字段；截图里的接口地址、MAF 状态仅代表
+拍摄时的示例，以当前接入指南和组织要求为准。若接入指南显示的是 HTTP 地址，
+Bearer Token 会随请求传输，请仅在可信网络或获准的安全通道中使用。
+
 ### 5. Curl
 
 ```powershell
